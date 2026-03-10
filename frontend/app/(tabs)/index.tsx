@@ -21,6 +21,16 @@ const CATEGORIES = [
   { id: 'mechanic', name: 'Mechanic', icon: 'construct' },
   { id: 'tutor', name: 'Tutor', icon: 'school' },
   { id: 'lawyer', name: 'Lawyer', icon: 'briefcase' },
+  { id: 'carpenter', name: 'Carpenter', icon: 'hammer' },
+  { id: 'painter', name: 'Painter', icon: 'color-palette' },
+  { id: 'cleaner', name: 'Cleaner', icon: 'sparkles' },
+  { id: 'gardener', name: 'Gardener', icon: 'leaf' },
+  { id: 'photographer', name: 'Photographer', icon: 'camera' },
+  { id: 'chef', name: 'Chef', icon: 'restaurant' },
+  { id: 'babysitter', name: 'Babysitter', icon: 'person' },
+  { id: 'trainer', name: 'Trainer', icon: 'fitness' },
+  { id: 'stylist', name: 'Stylist', icon: 'cut' },
+  { id: 'masseuse', name: 'Masseuse', icon: 'hand-left' },
 ];
 
 export default function HomeScreen() {
