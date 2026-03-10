@@ -17,7 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { jobAPI } from '../services/api';
 import * as Location from 'expo-location';
 
-const CATEGORIES = ['electrician', 'plumber', 'mechanic', 'tutor', 'lawyer', 'carpenter', 'painter', 'cleaner', 'gardener', 'photographer', 'chef', 'babysitter', 'trainer', 'stylist', 'masseuse'];
+const CATEGORIES = ['electrician', 'plumber', 'generator-tech', 'tailor', 'hairdresser', 'mechanic', 'ac-tech', 'phone-repair', 'caterer', 'event-planner', 'photographer', 'makeup-artist', 'driver', 'cleaner', 'bricklayer', 'carpenter', 'painter', 'welder', 'tiler', 'tutor', 'security', 'laundry', 'dj', 'dispatch'];
 
 export default function PostProblemScreen() {
   const router = useRouter();
