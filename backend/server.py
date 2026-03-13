@@ -277,13 +277,13 @@ async def get_helpers(
     if category:
         query["skills"] = category
     
-    helpers = await db.users.find(query).to_list(100)
+    # Use projection to exclude password_hash
+    helpers = await db.users.find(query, {"password_hash": 0}).to_list(100)
     
     # Calculate distance if location provided
     result = []
     for helper in helpers:
         helper["_id"] = str(helper["_id"])
-        helper.pop("password_hash", None)
         
         # Calculate distance
         if lat and lng and helper.get("location"):
@@ -336,17 +336,25 @@ async def get_jobs(
     
     jobs = await db.jobs.find(query).sort("created_at", -1).to_list(100)
     
+    # Batch fetch all users to avoid N+1 queries
+    user_ids = list(set([job["user_id"] for job in jobs]))
+    users = await db.users.find(
+        {"_id": {"$in": [ObjectId(uid) for uid in user_ids]}},
+        {"_id": 1, "name": 1}
+    ).to_list(None)
+    user_map = {str(user["_id"]): user for user in users}
+    
     result = []
     for job in jobs:
+        job_user_id = str(job["user_id"])
         job["_id"] = str(job["_id"])
-        job["user_id"] = str(job["user_id"])
+        job["user_id"] = job_user_id
         if job.get("helper_id"):
             job["helper_id"] = str(job["helper_id"])
         
-        # Get user info
-        user = await db.users.find_one({"_id": ObjectId(job["user_id"])})
-        if user:
-            job["user_name"] = user["name"]
+        # Get user info from map
+        if job_user_id in user_map:
+            job["user_name"] = user_map[job_user_id]["name"]
         
         # Calculate distance
         if lat and lng and job.get("location"):
@@ -386,17 +394,28 @@ async def get_job(job_id: str):
 async def get_my_posted_jobs(current_user: dict = Depends(get_current_user)):
     jobs = await db.jobs.find({"user_id": current_user["_id"]}).sort("created_at", -1).to_list(100)
     
+    # Batch fetch all helpers to avoid N+1 queries
+    helper_ids = [job["helper_id"] for job in jobs if job.get("helper_id")]
+    if helper_ids:
+        helpers = await db.users.find(
+            {"_id": {"$in": [ObjectId(hid) for hid in helper_ids]}},
+            {"_id": 1, "name": 1, "profile_photo": 1}
+        ).to_list(None)
+        helper_map = {str(helper["_id"]): helper for helper in helpers}
+    else:
+        helper_map = {}
+    
     result = []
     for job in jobs:
         job["_id"] = str(job["_id"])
         job["user_id"] = str(job["user_id"])
         if job.get("helper_id"):
-            job["helper_id"] = str(job["helper_id"])
-            # Get helper info
-            helper = await db.users.find_one({"_id": ObjectId(job["helper_id"])})
-            if helper:
-                job["helper_name"] = helper["name"]
-                job["helper_photo"] = helper.get("profile_photo")
+            helper_id_str = str(job["helper_id"])
+            job["helper_id"] = helper_id_str
+            # Get helper info from map
+            if helper_id_str in helper_map:
+                job["helper_name"] = helper_map[helper_id_str]["name"]
+                job["helper_photo"] = helper_map[helper_id_str].get("profile_photo")
         
         result.append(job)
     
@@ -406,17 +425,25 @@ async def get_my_posted_jobs(current_user: dict = Depends(get_current_user)):
 async def get_my_accepted_jobs(current_user: dict = Depends(get_current_user)):
     jobs = await db.jobs.find({"helper_id": current_user["_id"]}).sort("created_at", -1).to_list(100)
     
+    # Batch fetch all users to avoid N+1 queries
+    user_ids = [job["user_id"] for job in jobs]
+    users = await db.users.find(
+        {"_id": {"$in": [ObjectId(uid) for uid in user_ids]}},
+        {"_id": 1, "name": 1, "profile_photo": 1}
+    ).to_list(None)
+    user_map = {str(user["_id"]): user for user in users}
+    
     result = []
     for job in jobs:
         job["_id"] = str(job["_id"])
-        job["user_id"] = str(job["user_id"])
+        user_id_str = str(job["user_id"])
+        job["user_id"] = user_id_str
         job["helper_id"] = str(job["helper_id"])
         
-        # Get user info
-        user = await db.users.find_one({"_id": ObjectId(job["user_id"])})
-        if user:
-            job["user_name"] = user["name"]
-            job["user_photo"] = user.get("profile_photo")
+        # Get user info from map
+        if user_id_str in user_map:
+            job["user_name"] = user_map[user_id_str]["name"]
+            job["user_photo"] = user_map[user_id_str].get("profile_photo")
         
         result.append(job)
     
@@ -641,12 +668,20 @@ async def get_helper_reviews(helper_id: str):
     try:
         reviews = await db.reviews.find({"helper_id": helper_id}).sort("created_at", -1).to_list(100)
         
+        # Batch fetch all users to avoid N+1 queries
+        user_ids = list(set([review["user_id"] for review in reviews]))
+        users = await db.users.find(
+            {"_id": {"$in": [ObjectId(uid) for uid in user_ids]}},
+            {"_id": 1, "name": 1}
+        ).to_list(None)
+        user_map = {str(user["_id"]): user for user in users}
+        
         for review in reviews:
             review["_id"] = str(review["_id"])
-            # Get user info
-            user = await db.users.find_one({"_id": ObjectId(review["user_id"])})
-            if user:
-                review["user_name"] = user["name"]
+            # Get user info from map
+            user_id_str = str(review["user_id"])
+            if user_id_str in user_map:
+                review["user_name"] = user_map[user_id_str]["name"]
         
         return reviews
     except Exception as e:
