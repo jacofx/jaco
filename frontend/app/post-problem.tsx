@@ -14,10 +14,39 @@ import {
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { jobAPI } from '../services/api';
+import { adsAPI, jobAPI } from '../services/api';
 import * as Location from 'expo-location';
+import { getApiErrorMessage } from '../services/error';
+import * as Linking from 'expo-linking';
+import * as WebBrowser from 'expo-web-browser';
 
 const CATEGORIES = ['electrician', 'plumber', 'generator-tech', 'tailor', 'hairdresser', 'mechanic', 'ac-tech', 'phone-repair', 'caterer', 'event-planner', 'photographer', 'makeup-artist', 'driver', 'cleaner', 'bricklayer', 'carpenter', 'painter', 'welder', 'tiler', 'tutor', 'security', 'laundry', 'dj', 'dispatch'];
+const AD_PACKAGES = [
+  {
+    id: 'free',
+    name: 'Free listing',
+    price: 'Free',
+    description: 'Normal visibility in your area',
+    perks: ['Visible in category search', 'Receives direct helper offers'],
+    accent: '#E5E7EB',
+  },
+  {
+    id: 'boost',
+    name: 'Boosted ad',
+    price: 'NGN 2,500',
+    description: 'Higher placement for 7 days',
+    perks: ['Priority placement', 'Boost label on your request', 'More helper views'],
+    accent: '#FACC15',
+  },
+  {
+    id: 'top',
+    name: 'Top ad',
+    price: 'NGN 6,000',
+    description: 'Premium slot with urgent tag for 14 days',
+    perks: ['Top of results', 'Urgent + featured labels', 'Priority support'],
+    accent: '#FB923C',
+  },
+] as const;
 
 export default function PostProblemScreen() {
   const router = useRouter();
@@ -26,9 +55,21 @@ export default function PostProblemScreen() {
   const [budget, setBudget] = useState('');
   const [category, setCategory] = useState('');
   const [location, setLocation] = useState<any>(null);
-  const [locationText, setLocationText] = useState('');
   const [loading, setLoading] = useState(false);
   const [gettingLocation, setGettingLocation] = useState(false);
+  const [selectedPackage, setSelectedPackage] = useState<(typeof AD_PACKAGES)[number]['id']>('free');
+
+  const activePackage = AD_PACKAGES.find((item) => item.id === selectedPackage) || AD_PACKAGES[0];
+
+  const promotionPayload = {
+    id: activePackage.id,
+    label: activePackage.name,
+    price: activePackage.price,
+    duration_days: activePackage.id === 'boost' ? 7 : activePackage.id === 'top' ? 14 : 0,
+    priority_level: activePackage.id === 'boost' ? 1 : activePackage.id === 'top' ? 2 : 0,
+    featured: activePackage.id === 'top',
+    urgent: activePackage.id === 'top',
+  };
 
   const handleGetLocation = async () => {
     setGettingLocation(true);
@@ -45,13 +86,13 @@ export default function PostProblemScreen() {
         longitude: loc.coords.longitude,
       });
 
-      setLocation({
+      const nextLocation = {
         lat: loc.coords.latitude,
         lng: loc.coords.longitude,
         address: address[0] ? `${address[0].street}, ${address[0].city}` : 'Current Location',
-      });
-      setLocationText(location?.address || 'Current Location');
-    } catch (error) {
+      };
+      setLocation(nextLocation);
+    } catch {
       Alert.alert('Error', 'Failed to get location');
     } finally {
       setGettingLocation(false);
@@ -71,22 +112,75 @@ export default function PostProblemScreen() {
 
     setLoading(true);
     try {
+      let paymentId: string | undefined;
+
+      if (selectedPackage !== 'free') {
+        const checkoutResponse = await adsAPI.checkout(selectedPackage);
+        paymentId = checkoutResponse.data?.payment?._id;
+        const checkoutUrl = checkoutResponse.data?.checkout_url;
+        const requiresRedirect = checkoutResponse.data?.requires_redirect;
+
+        if (!paymentId) {
+          throw new Error('Payment could not be completed');
+        }
+
+        if (requiresRedirect) {
+          if (!checkoutUrl) {
+            throw new Error('Checkout URL is missing');
+          }
+
+          const redirectUri = Linking.createURL('ads-payment');
+          const paymentResult = await WebBrowser.openAuthSessionAsync(checkoutUrl, redirectUri);
+
+          if (paymentResult.type !== 'success' || !paymentResult.url) {
+            throw new Error('Payment was cancelled');
+          }
+
+          const parsed = Linking.parse(paymentResult.url);
+          const status = Array.isArray(parsed.queryParams?.status)
+            ? parsed.queryParams?.status[0]
+            : parsed.queryParams?.status;
+          const sessionId = Array.isArray(parsed.queryParams?.session_id)
+            ? parsed.queryParams?.session_id[0]
+            : parsed.queryParams?.session_id;
+
+          if (status !== 'success' || !sessionId) {
+            throw new Error('Payment was not completed');
+          }
+
+          await adsAPI.verify(paymentId, sessionId);
+        }
+      }
+
       await jobAPI.createJob({
         title,
         description,
         budget: parseFloat(budget),
         category,
         location,
+        ad_package: selectedPackage,
+        promotion: promotionPayload,
+        promotion_days: promotionPayload.duration_days,
+        priority_level: promotionPayload.priority_level,
+        is_featured: promotionPayload.featured,
+        is_urgent: promotionPayload.urgent,
+        payment_id: paymentId,
       });
 
-      Alert.alert('Success', 'Problem posted successfully', [
+      Alert.alert(
+        'Success',
+        selectedPackage === 'free'
+          ? 'Problem posted successfully'
+          : `${activePackage.name} purchased and saved with your post`,
+        [
         {
           text: 'OK',
           onPress: () => router.back(),
         },
-      ]);
+        ]
+      );
     } catch (error: any) {
-      Alert.alert('Error', error.response?.data?.detail || 'Failed to post problem');
+      Alert.alert('Error', getApiErrorMessage(error, 'Failed to post problem'));
     } finally {
       setLoading(false);
     }
@@ -108,6 +202,17 @@ export default function PostProblemScreen() {
           </View>
 
           <View style={styles.form}>
+            <View style={styles.heroCard}>
+              <View style={styles.heroBadge}>
+                <Ionicons name="megaphone-outline" size={16} color="#111827" />
+                <Text style={styles.heroBadgeText}>Ads subscription</Text>
+              </View>
+              <Text style={styles.heroTitle}>Post like a marketplace listing</Text>
+              <Text style={styles.heroText}>
+                Choose a package before publishing. Free works, but boosted ads stay visible longer and get faster helper attention.
+              </Text>
+            </View>
+
             <View style={styles.inputContainer}>
               <Text style={styles.label}>Title *</Text>
               <TextInput
@@ -178,16 +283,65 @@ export default function PostProblemScreen() {
                 disabled={gettingLocation}
               >
                 {gettingLocation ? (
-                  <ActivityIndicator color="#000" />
+                  <ActivityIndicator color="#111827" />
                 ) : (
                   <>
-                    <Ionicons name="location-outline" size={24} color="#000" />
+                    <Ionicons name="location-outline" size={24} color="#111827" />
                     <Text style={styles.locationButtonText}>
                       {location ? location.address : 'Get Current Location'}
                     </Text>
                   </>
                 )}
               </TouchableOpacity>
+            </View>
+
+            <View style={styles.inputContainer}>
+              <Text style={styles.label}>Ad package</Text>
+              <View style={styles.packageList}>
+                {AD_PACKAGES.map((item) => {
+                  const isActive = item.id === selectedPackage;
+
+                  return (
+                    <TouchableOpacity
+                      key={item.id}
+                      style={[
+                        styles.packageCard,
+                        isActive && styles.packageCardActive,
+                        { borderColor: isActive ? item.accent : '#E5E7EB' },
+                      ]}
+                      onPress={() => setSelectedPackage(item.id)}
+                    >
+                      <View style={styles.packageHeader}>
+                        <View style={styles.packageTitleRow}>
+                          <Text style={styles.packageName}>{item.name}</Text>
+                          {item.id !== 'free' && (
+                            <View style={[styles.packagePill, { backgroundColor: item.accent }]}>
+                              <Text style={styles.packagePillText}>Popular</Text>
+                            </View>
+                          )}
+                        </View>
+                        <Text style={styles.packagePrice}>{item.price}</Text>
+                      </View>
+                      <Text style={styles.packageDescription}>{item.description}</Text>
+                      {item.perks.map((perk) => (
+                        <View key={perk} style={styles.packagePerkRow}>
+                          <Ionicons name="checkmark-circle" size={16} color="#166534" />
+                          <Text style={styles.packagePerkText}>{perk}</Text>
+                        </View>
+                      ))}
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+
+            <View style={styles.summaryCard}>
+              <Text style={styles.summaryLabel}>Selected package</Text>
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryTitle}>{activePackage.name}</Text>
+                <Text style={styles.summaryPrice}>{activePackage.price}</Text>
+              </View>
+              <Text style={styles.summaryText}>{activePackage.description}</Text>
             </View>
 
             <TouchableOpacity
@@ -198,7 +352,9 @@ export default function PostProblemScreen() {
               {loading ? (
                 <ActivityIndicator color="#fff" />
               ) : (
-                <Text style={styles.postButtonText}>Post Problem</Text>
+                <Text style={styles.postButtonText}>
+                  {selectedPackage === 'free' ? 'Post Problem' : `Pay for ${activePackage.name} & Post`}
+                </Text>
               )}
             </TouchableOpacity>
           </View>
@@ -235,6 +391,38 @@ const styles = StyleSheet.create({
   form: {
     padding: 16,
     gap: 20,
+  },
+  heroCard: {
+    backgroundColor: '#111827',
+    borderRadius: 20,
+    padding: 18,
+    gap: 10,
+  },
+  heroBadge: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#FDE68A',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  heroBadgeText: {
+    color: '#111827',
+    fontSize: 12,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+  },
+  heroTitle: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  heroText: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: '#D1D5DB',
   },
   inputContainer: {
     gap: 8,
@@ -296,8 +484,104 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#000',
   },
+  packageList: {
+    gap: 12,
+  },
+  packageCard: {
+    backgroundColor: '#fff',
+    borderRadius: 18,
+    borderWidth: 1,
+    padding: 16,
+    gap: 8,
+  },
+  packageCardActive: {
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 3,
+  },
+  packageHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+  packageTitleRow: {
+    flex: 1,
+    gap: 6,
+  },
+  packageName: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  packagePrice: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  packageDescription: {
+    fontSize: 14,
+    color: '#4B5563',
+  },
+  packagePill: {
+    alignSelf: 'flex-start',
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  packagePillText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#111827',
+    textTransform: 'uppercase',
+  },
+  packagePerkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  packagePerkText: {
+    fontSize: 13,
+    color: '#374151',
+  },
+  summaryCard: {
+    backgroundColor: '#FFF7ED',
+    borderRadius: 18,
+    padding: 16,
+    gap: 6,
+    borderWidth: 1,
+    borderColor: '#FED7AA',
+  },
+  summaryLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#9A3412',
+    textTransform: 'uppercase',
+  },
+  summaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 12,
+  },
+  summaryTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#7C2D12',
+  },
+  summaryPrice: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#7C2D12',
+  },
+  summaryText: {
+    fontSize: 14,
+    color: '#9A3412',
+  },
   postButton: {
-    backgroundColor: '#000',
+    backgroundColor: '#111827',
     borderRadius: 12,
     padding: 16,
     alignItems: 'center',

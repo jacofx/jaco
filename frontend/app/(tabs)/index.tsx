@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -12,7 +12,7 @@ import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '../../store/authStore';
-import { jobAPI } from '../../services/api';
+import { getJobPromotion, jobAPI } from '../../services/api';
 import * as Location from 'expo-location';
 
 const CATEGORIES = [
@@ -49,27 +49,7 @@ export default function HomeScreen() {
   const [loading, setLoading] = useState(false);
   const [location, setLocation] = useState<any>(null);
 
-  useEffect(() => {
-    loadLocation();
-  }, []);
-
-  const loadLocation = async () => {
-    try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permission Denied', 'Location permission is required to show nearby jobs');
-        return;
-      }
-
-      const loc = await Location.getCurrentPositionAsync({});
-      setLocation(loc.coords);
-      loadNearbyJobs(loc.coords);
-    } catch (error) {
-      console.error('Error getting location:', error);
-    }
-  };
-
-  const loadNearbyJobs = async (coords?: any) => {
+  const loadNearbyJobs = useCallback(async (coords?: any) => {
     if (user?.role !== 'helper') return;
     
     setLoading(true);
@@ -88,7 +68,27 @@ export default function HomeScreen() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [location, user?.role]);
+
+  const loadLocation = useCallback(async () => {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Denied', 'Location permission is required to show nearby jobs');
+        return;
+      }
+
+      const loc = await Location.getCurrentPositionAsync({});
+      setLocation(loc.coords);
+      loadNearbyJobs(loc.coords);
+    } catch (error) {
+      console.error('Error getting location:', error);
+    }
+  }, [loadNearbyJobs]);
+
+  useEffect(() => {
+    loadLocation();
+  }, [loadLocation]);
 
   const onRefresh = () => {
     loadLocation();
@@ -106,6 +106,43 @@ export default function HomeScreen() {
             {user?.role === 'helper' ? 'Find jobs near you' : 'Get help from nearby helpers'}
           </Text>
         </View>
+
+        {user?.role === 'need_help' ? (
+          <View style={styles.marketingCard}>
+            <View style={styles.marketingBadge}>
+              <Ionicons name="star" size={14} color="#111827" />
+              <Text style={styles.marketingBadgeText}>Ad subscription</Text>
+            </View>
+            <Text style={styles.marketingTitle}>Push your request above regular listings</Text>
+            <Text style={styles.marketingText}>
+              Boosted and top ads stay pinned longer, carry urgent labels, and get faster helper attention.
+            </Text>
+            <View style={styles.marketingStats}>
+              <View style={styles.marketingStat}>
+                <Text style={styles.marketingStatValue}>7 days</Text>
+                <Text style={styles.marketingStatLabel}>Boost cycle</Text>
+              </View>
+              <View style={styles.marketingStat}>
+                <Text style={styles.marketingStatValue}>Top slot</Text>
+                <Text style={styles.marketingStatLabel}>Premium placement</Text>
+              </View>
+              <View style={styles.marketingStat}>
+                <Text style={styles.marketingStatValue}>Urgent tag</Text>
+                <Text style={styles.marketingStatLabel}>More visibility</Text>
+              </View>
+            </View>
+          </View>
+        ) : (
+          <View style={styles.helperSubscriptionCard}>
+            <View>
+              <Text style={styles.helperSubscriptionLabel}>Seller tools</Text>
+              <Text style={styles.helperSubscriptionTitle}>Weekly visibility plan</Text>
+            </View>
+            <Text style={styles.helperSubscriptionText}>
+              Stay first in line for promoted requests and track boosted jobs near you.
+            </Text>
+          </View>
+        )}
 
         {user?.role === 'need_help' && (
           <TouchableOpacity
@@ -142,28 +179,53 @@ export default function HomeScreen() {
               </TouchableOpacity>
             </View>
             {nearbyJobs.map((job) => (
-              <TouchableOpacity
-                key={job._id}
-                style={styles.jobCard}
-                onPress={() => router.push(`/job/${job._id}`)}
-              >
-                <View style={styles.jobHeader}>
-                  <Text style={styles.jobTitle}>{job.title}</Text>
-                  {job.distance && (
-                    <View style={styles.distanceBadge}>
-                      <Ionicons name="location-outline" size={14} color="#666" />
-                      <Text style={styles.distanceText}>{job.distance} km</Text>
+              (() => {
+                const promotion = getJobPromotion(job);
+
+                return (
+                  <TouchableOpacity
+                    key={job._id}
+                    style={[
+                      styles.jobCard,
+                      promotion?.id === 'top' && styles.jobCardTop,
+                      promotion?.id === 'boost' && styles.jobCardBoost,
+                    ]}
+                    onPress={() => router.push(`/job/${job._id}`)}
+                  >
+                    <View style={styles.jobHeader}>
+                      <Text style={styles.jobTitle}>{job.title}</Text>
+                      {job.distance && (
+                        <View style={styles.distanceBadge}>
+                          <Ionicons name="location-outline" size={14} color="#666" />
+                          <Text style={styles.distanceText}>{job.distance} km</Text>
+                        </View>
+                      )}
                     </View>
-                  )}
-                </View>
-                <Text style={styles.jobDescription} numberOfLines={2}>
-                  {job.description}
-                </Text>
-                <View style={styles.jobFooter}>
-                  <Text style={styles.jobBudget}>${job.budget}</Text>
-                  <Text style={styles.jobCategory}>{job.category}</Text>
-                </View>
-              </TouchableOpacity>
+                    {promotion && promotion.id !== 'free' && (
+                      <View
+                        style={[
+                          styles.jobPromotionBadge,
+                          promotion.id === 'top' ? styles.jobPromotionBadgeTop : styles.jobPromotionBadgeBoost,
+                        ]}
+                      >
+                        <Ionicons
+                          name={promotion.id === 'top' ? 'flash' : 'trending-up'}
+                          size={14}
+                          color="#111827"
+                        />
+                        <Text style={styles.jobPromotionText}>{promotion.label}</Text>
+                      </View>
+                    )}
+                    <Text style={styles.jobDescription} numberOfLines={2}>
+                      {job.description}
+                    </Text>
+                    <View style={styles.jobFooter}>
+                      <Text style={styles.jobBudget}>${job.budget}</Text>
+                      <Text style={styles.jobCategory}>{job.category}</Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })()
             ))}
           </View>
         )}
@@ -202,11 +264,89 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#666',
   },
+  marketingCard: {
+    backgroundColor: '#111827',
+    borderRadius: 22,
+    padding: 18,
+    gap: 12,
+    marginBottom: 20,
+  },
+  marketingBadge: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#FDE68A',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  marketingBadgeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#111827',
+    textTransform: 'uppercase',
+  },
+  marketingTitle: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  marketingText: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: '#D1D5DB',
+  },
+  marketingStats: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  marketingStat: {
+    flex: 1,
+    backgroundColor: '#1F2937',
+    borderRadius: 16,
+    padding: 12,
+    gap: 4,
+  },
+  marketingStatValue: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  marketingStatLabel: {
+    fontSize: 12,
+    color: '#9CA3AF',
+  },
+  helperSubscriptionCard: {
+    backgroundColor: '#FFF7ED',
+    borderRadius: 22,
+    padding: 18,
+    gap: 8,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#FED7AA',
+  },
+  helperSubscriptionLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#C2410C',
+    textTransform: 'uppercase',
+  },
+  helperSubscriptionTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#7C2D12',
+  },
+  helperSubscriptionText: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: '#9A3412',
+  },
   postButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#000',
+    backgroundColor: '#111827',
     borderRadius: 12,
     padding: 16,
     marginBottom: 24,
@@ -268,6 +408,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#f0f0f0',
   },
+  jobCardBoost: {
+    borderColor: '#FDE68A',
+    backgroundColor: '#FFFBEB',
+  },
+  jobCardTop: {
+    borderColor: '#FDBA74',
+    backgroundColor: '#FFF7ED',
+  },
   jobHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -293,6 +441,27 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
     marginBottom: 12,
+  },
+  jobPromotionBadge: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    marginBottom: 10,
+  },
+  jobPromotionBadgeBoost: {
+    backgroundColor: '#FEF3C7',
+  },
+  jobPromotionBadgeTop: {
+    backgroundColor: '#FED7AA',
+  },
+  jobPromotionText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#111827',
   },
   jobFooter: {
     flexDirection: 'row',
