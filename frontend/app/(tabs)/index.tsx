@@ -220,7 +220,7 @@ export default function HomeScreen() {
                       {job.description}
                     </Text>
                     <View style={styles.jobFooter}>
-                      <Text style={styles.jobBudget}>${job.budget}</Text>
+                      <Text style={styles.jobBudget}>₦{job.budget}</Text>
                       <Text style={styles.jobCategory}>{job.category}</Text>
                     </View>
                   </TouchableOpacity>

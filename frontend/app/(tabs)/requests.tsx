@@ -120,7 +120,7 @@ export default function RequestsScreen() {
         </Text>
 
         <View style={styles.jobMeta}>
-          <Text style={styles.budget}>${item.budget}</Text>
+          <Text style={styles.budget}>₦{item.budget}</Text>
           <View style={styles.statusBadge}>
             <Text style={styles.statusText}>{item.status.replace('_', ' ')}</Text>
           </View>

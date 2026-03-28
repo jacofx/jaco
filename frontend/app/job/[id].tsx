@@ -178,7 +178,7 @@ export default function JobDetailScreen() {
 
         <View style={styles.budgetContainer}>
           <Text style={styles.budgetLabel}>Budget</Text>
-          <Text style={styles.budget}>${job.budget}</Text>
+          <Text style={styles.budget}>₦{job.budget}</Text>
         </View>
 
         <View style={styles.section}>

@@ -239,10 +239,10 @@ export default function PostProblemScreen() {
             </View>
 
             <View style={styles.inputContainer}>
-              <Text style={styles.label}>Budget ($) *</Text>
+              <Text style={styles.label}>Budget (₦) *</Text>
               <TextInput
                 style={styles.input}
-                placeholder="e.g., 50"
+                placeholder="e.g., 5000"
                 value={budget}
                 onChangeText={setBudget}
                 keyboardType="numeric"
