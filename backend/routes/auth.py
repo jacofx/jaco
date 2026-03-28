@@ -1,0 +1,76 @@
+from datetime import datetime
+
+from fastapi import Depends, HTTPException
+
+import core
+
+
+@core.api_router.post("/auth/register")
+async def register(user_data: core.UserRegister):
+    if user_data.email:
+        existing_user = await core.db.users.find_one({"email": user_data.email})
+        if existing_user:
+            raise HTTPException(status_code=400, detail="Email already registered")
+
+    if user_data.phone:
+        existing_user = await core.db.users.find_one({"phone": user_data.phone})
+        if existing_user:
+            raise HTTPException(status_code=400, detail="Phone already registered")
+
+    user_dict = {
+        "email": user_data.email,
+        "phone": user_data.phone,
+        "password_hash": core.hash_password(user_data.password),
+        "name": user_data.name,
+        "role": user_data.role,
+        "skills": user_data.skills if user_data.role == "helper" else [],
+        "profile_photo": None,
+        "location": None,
+        "rating": 0,
+        "completed_jobs_count": 0,
+        "total_rating": 0,
+        "rating_count": 0,
+        "created_at": datetime.utcnow(),
+        "updated_at": datetime.utcnow(),
+    }
+
+    result = await core.db.users.insert_one(user_dict)
+    user_id = str(result.inserted_id)
+    access_token = core.create_access_token(data={"sub": user_id})
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user_id": user_id,
+        "name": user_data.name,
+        "role": user_data.role,
+    }
+
+
+@core.api_router.post("/auth/login")
+async def login(credentials: core.UserLogin):
+    query = {}
+    if credentials.email:
+        query["email"] = credentials.email
+    elif credentials.phone:
+        query["phone"] = credentials.phone
+    else:
+        raise HTTPException(status_code=400, detail="Email or phone required")
+
+    user = await core.db.users.find_one(query)
+    if not user or not core.verify_password(credentials.password, user["password_hash"]):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    user_id = str(user["_id"])
+    access_token = core.create_access_token(data={"sub": user_id})
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user_id": user_id,
+        "name": user["name"],
+        "role": user["role"],
+    }
+
+
+@core.api_router.get("/auth/me")
+async def get_me(current_user: dict = Depends(core.get_current_user)):
+    return current_user

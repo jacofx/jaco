@@ -1,0 +1,304 @@
+import math
+import os
+from contextlib import asynccontextmanager
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import List, Optional
+
+from bson import ObjectId
+from dotenv import load_dotenv
+from fastapi import APIRouter, Depends, FastAPI, HTTPException
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from jose import JWTError, jwt
+from motor.motor_asyncio import AsyncIOMotorClient
+from passlib.context import CryptContext
+from pydantic import BaseModel, EmailStr
+import socketio
+import stripe
+
+ROOT_DIR = Path(__file__).parent
+load_dotenv(ROOT_DIR / ".env")
+
+mongo_url = os.environ["MONGO_URL"]
+client = AsyncIOMotorClient(mongo_url)
+db = client[os.environ["DB_NAME"]]
+stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
+
+SECRET_KEY = os.environ.get("SECRET_KEY", "your-secret-key-change-in-production")
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+security = HTTPBearer()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    yield
+    client.close()
+
+
+app = FastAPI(lifespan=lifespan)
+sio = socketio.AsyncServer(
+    async_mode="asgi",
+    cors_allowed_origins="*",
+    logger=True,
+    engineio_logger=True,
+)
+socket_app = socketio.ASGIApp(sio, app)
+api_router = APIRouter(prefix="/api")
+
+
+class UserRole(str):
+    NEED_HELP = "need_help"
+    HELPER = "helper"
+
+
+class JobStatus(str):
+    POSTED = "posted"
+    ACCEPTED = "accepted"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+
+
+class Location(BaseModel):
+    lat: float
+    lng: float
+    address: str
+
+
+class JobPromotion(BaseModel):
+    id: str
+    label: Optional[str] = None
+    price: Optional[str] = None
+    duration_days: Optional[int] = None
+    priority_level: Optional[int] = None
+    featured: Optional[bool] = None
+    urgent: Optional[bool] = None
+
+
+class AdCheckoutCreate(BaseModel):
+    package_id: str
+
+
+class JobPaymentLink(BaseModel):
+    payment_id: Optional[str] = None
+
+
+class AdPaymentVerify(BaseModel):
+    payment_id: str
+    session_id: str
+
+
+class NotificationUpdate(BaseModel):
+    read: bool = True
+
+
+class UserRegister(BaseModel):
+    email: Optional[EmailStr] = None
+    phone: Optional[str] = None
+    password: str
+    name: str
+    role: str
+    skills: Optional[List[str]] = []
+
+
+class UserLogin(BaseModel):
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    password: str
+
+
+class UserUpdate(BaseModel):
+    name: Optional[str] = None
+    profile_photo: Optional[str] = None
+    location: Optional[Location] = None
+    skills: Optional[List[str]] = None
+
+
+class JobCreate(BaseModel):
+    title: str
+    description: str
+    budget: float
+    location: Location
+    category: str
+    images: Optional[List[str]] = []
+    ad_package: Optional[str] = "free"
+    promotion: Optional[JobPromotion] = None
+    promotion_days: Optional[int] = None
+    priority_level: Optional[int] = None
+    is_featured: Optional[bool] = None
+    is_urgent: Optional[bool] = None
+    payment_id: Optional[str] = None
+
+
+class JobUpdate(BaseModel):
+    status: Optional[str] = None
+    helper_id: Optional[str] = None
+
+
+class MessageCreate(BaseModel):
+    job_id: str
+    receiver_id: str
+    message: str
+
+
+class ReviewCreate(BaseModel):
+    job_id: str
+    helper_id: str
+    rating: int
+    comment: str
+
+
+def hash_password(password: str) -> str:
+    return pwd_context.hash(password)
+
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return pwd_context.verify(plain_password, hashed_password)
+
+
+def create_access_token(data: dict):
+    to_encode = data.copy()
+    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+
+async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    token = credentials.credentials
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id: str = payload.get("sub")
+        if user_id is None:
+            raise HTTPException(status_code=401, detail="Invalid authentication credentials")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid authentication credentials")
+
+    user = await db.users.find_one({"_id": ObjectId(user_id)})
+    if user is None:
+        raise HTTPException(status_code=401, detail="User not found")
+
+    user["_id"] = str(user["_id"])
+    user.pop("password_hash", None)
+    return user
+
+
+def calculate_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    r = 6371
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    a = math.sin(dlat / 2) ** 2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2) ** 2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    return round(r * c, 2)
+
+
+PROMOTION_PRESETS = {
+    "free": {
+        "id": "free",
+        "label": "Free listing",
+        "price": "Free",
+        "duration_days": 0,
+        "priority_level": 0,
+        "featured": False,
+        "urgent": False,
+    },
+    "boost": {
+        "id": "boost",
+        "label": "Boosted ad",
+        "price": "NGN 2,500",
+        "duration_days": 7,
+        "priority_level": 1,
+        "featured": False,
+        "urgent": False,
+    },
+    "top": {
+        "id": "top",
+        "label": "Top ad",
+        "price": "NGN 6,000",
+        "duration_days": 14,
+        "priority_level": 2,
+        "featured": True,
+        "urgent": True,
+    },
+}
+
+PACKAGE_PRICES = {
+    "free": {"amount": 0, "currency": "NGN"},
+    "boost": {"amount": 2500, "currency": "NGN"},
+    "top": {"amount": 6000, "currency": "NGN"},
+}
+
+PAYMENTS_MODE = "stripe" if stripe.api_key else os.environ.get("PAYMENTS_MODE", "demo")
+
+
+def normalize_job_promotion(job_dict: dict) -> dict:
+    existing_expires_at = job_dict.get("promotion_expires_at")
+    raw_promotion = job_dict.get("promotion") or {}
+    raw_package = (
+        job_dict.get("ad_package")
+        or raw_promotion.get("id")
+        or raw_promotion.get("package")
+        or raw_promotion.get("name")
+    )
+
+    if raw_package in PROMOTION_PRESETS:
+        preset = PROMOTION_PRESETS[raw_package].copy()
+    elif job_dict.get("is_featured") or job_dict.get("is_urgent") or (job_dict.get("priority_level") or 0) >= 2:
+        preset = PROMOTION_PRESETS["top"].copy()
+    elif (job_dict.get("priority_level") or 0) >= 1:
+        preset = PROMOTION_PRESETS["boost"].copy()
+    else:
+        preset = PROMOTION_PRESETS["free"].copy()
+
+    promotion_days = job_dict.get("promotion_days")
+    priority_level = job_dict.get("priority_level")
+    is_featured = job_dict.get("is_featured")
+    is_urgent = job_dict.get("is_urgent")
+
+    preset["duration_days"] = promotion_days if promotion_days is not None else preset["duration_days"]
+    preset["priority_level"] = priority_level if priority_level is not None else preset["priority_level"]
+    preset["featured"] = is_featured if is_featured is not None else preset["featured"]
+    preset["urgent"] = is_urgent if is_urgent is not None else preset["urgent"]
+
+    job_dict["ad_package"] = preset["id"]
+    job_dict["promotion"] = preset
+    job_dict["promotion_days"] = preset["duration_days"]
+    job_dict["priority_level"] = preset["priority_level"]
+    job_dict["is_featured"] = preset["featured"]
+    job_dict["is_urgent"] = preset["urgent"]
+
+    if preset["duration_days"] > 0:
+        job_dict["promotion_expires_at"] = existing_expires_at or (datetime.utcnow() + timedelta(days=preset["duration_days"]))
+    else:
+        job_dict["promotion_expires_at"] = None
+
+    return job_dict
+
+
+def serialize_job(job: dict) -> dict:
+    job["_id"] = str(job["_id"])
+    job["user_id"] = str(job["user_id"])
+    if job.get("helper_id"):
+        job["helper_id"] = str(job["helper_id"])
+    return normalize_job_promotion(job)
+
+
+def serialize_payment(payment: dict) -> dict:
+    payment["_id"] = str(payment["_id"])
+    payment["user_id"] = str(payment["user_id"])
+    if payment.get("job_id"):
+        payment["job_id"] = str(payment["job_id"])
+    return payment
+
+
+def serialize_notification(notification: dict) -> dict:
+    notification["_id"] = str(notification["_id"])
+    notification["user_id"] = str(notification["user_id"])
+    if notification.get("job_id"):
+        notification["job_id"] = str(notification["job_id"])
+    return notification
+
+
+def get_checkout_redirect_base() -> str:
+    return os.environ.get("PAYMENT_REDIRECT_URI", "frontend://ads-payment")
