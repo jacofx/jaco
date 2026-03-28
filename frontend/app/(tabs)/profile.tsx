@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -13,12 +13,26 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '../../store/authStore';
 import * as ImagePicker from 'expo-image-picker';
-import { userAPI } from '../../services/api';
+import { adsAPI, userAPI } from '../../services/api';
 
 export default function ProfileScreen() {
   const router = useRouter();
   const { user, logout, setUser } = useAuthStore();
   const [uploading, setUploading] = useState(false);
+  const [purchases, setPurchases] = useState<any[]>([]);
+
+  useEffect(() => {
+    const loadPurchases = async () => {
+      try {
+        const response = await adsAPI.getPurchases();
+        setPurchases(response.data || []);
+      } catch {
+        setPurchases([]);
+      }
+    };
+
+    loadPurchases();
+  }, []);
 
   const handleLogout = () => {
     Alert.alert(
@@ -62,7 +76,7 @@ export default function ProfileScreen() {
         setUser(response.data);
         Alert.alert('Success', 'Profile photo updated');
       }
-    } catch (error) {
+    } catch {
       Alert.alert('Error', 'Failed to upload photo');
     } finally {
       setUploading(false);
@@ -132,6 +146,71 @@ export default function ProfileScreen() {
           </View>
         )}
 
+        <View style={styles.subscriptionCard}>
+          <View style={styles.subscriptionHeader}>
+            <View>
+              <Text style={styles.subscriptionEyebrow}>Ads subscription</Text>
+              <Text style={styles.subscriptionName}>
+                {user?.role === 'helper' ? 'Pro helper visibility' : 'Boosted request plan'}
+              </Text>
+            </View>
+            <View style={styles.subscriptionStatus}>
+              <Text style={styles.subscriptionStatusText}>Active</Text>
+            </View>
+          </View>
+          <Text style={styles.subscriptionDescription}>
+            {user?.role === 'helper'
+              ? 'Get early access to promoted requests, stronger placement in helper searches, and weekly lead visibility.'
+              : 'Use boosted and top ad packages to keep urgent requests visible and win faster responses from nearby helpers.'}
+          </Text>
+          <View style={styles.subscriptionBenefits}>
+            <View style={styles.subscriptionBenefit}>
+              <Ionicons name="flash" size={16} color="#C2410C" />
+              <Text style={styles.subscriptionBenefitText}>Priority exposure</Text>
+            </View>
+            <View style={styles.subscriptionBenefit}>
+              <Ionicons name="megaphone" size={16} color="#C2410C" />
+              <Text style={styles.subscriptionBenefitText}>Ad boost tools</Text>
+            </View>
+            <View style={styles.subscriptionBenefit}>
+              <Ionicons name="stats-chart" size={16} color="#C2410C" />
+              <Text style={styles.subscriptionBenefitText}>Better conversion</Text>
+            </View>
+          </View>
+          <TouchableOpacity
+            style={styles.subscriptionAction}
+            onPress={() => router.push('/payments')}
+          >
+            <Text style={styles.subscriptionActionText}>View payment history</Text>
+            <Ionicons name="arrow-forward" size={18} color="#7C2D12" />
+          </TouchableOpacity>
+        </View>
+
+        {purchases.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Recent Ad Payments</Text>
+            <View style={styles.purchaseList}>
+              {purchases.slice(0, 3).map((purchase) => (
+                <TouchableOpacity
+                  key={purchase._id}
+                  style={styles.purchaseCard}
+                  onPress={() => router.push('/payments')}
+                >
+                  <View>
+                    <Text style={styles.purchaseTitle}>{purchase.package_name}</Text>
+                    <Text style={styles.purchaseMeta}>
+                      {purchase.currency} {purchase.amount.toLocaleString()}
+                    </Text>
+                  </View>
+                  <View style={styles.purchaseStatus}>
+                    <Text style={styles.purchaseStatusText}>{purchase.status}</Text>
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        )}
+
         <View style={styles.section}>
           <TouchableOpacity style={styles.menuItem}>
             <Ionicons name="person-outline" size={24} color="#000" />
@@ -145,7 +224,13 @@ export default function ProfileScreen() {
             <Ionicons name="chevron-forward" size={24} color="#ccc" />
           </TouchableOpacity>
           
-          <TouchableOpacity style={styles.menuItem}>
+          <TouchableOpacity style={styles.menuItem} onPress={() => router.push('/payments')}>
+            <Ionicons name="card-outline" size={24} color="#000" />
+            <Text style={styles.menuItemText}>Ad Payments</Text>
+            <Ionicons name="chevron-forward" size={24} color="#ccc" />
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.menuItem} onPress={() => router.push('/(tabs)/notifications')}>
             <Ionicons name="notifications-outline" size={24} color="#000" />
             <Text style={styles.menuItemText}>Notifications</Text>
             <Ionicons name="chevron-forward" size={24} color="#ccc" />
@@ -261,11 +346,116 @@ const styles = StyleSheet.create({
   section: {
     marginBottom: 24,
   },
+  subscriptionCard: {
+    backgroundColor: '#FFF7ED',
+    borderRadius: 20,
+    padding: 18,
+    marginBottom: 24,
+    gap: 12,
+    borderWidth: 1,
+    borderColor: '#FED7AA',
+  },
+  subscriptionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+  subscriptionEyebrow: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#C2410C',
+    textTransform: 'uppercase',
+  },
+  subscriptionName: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#7C2D12',
+    marginTop: 4,
+  },
+  subscriptionStatus: {
+    backgroundColor: '#FFEDD5',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  subscriptionStatusText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#9A3412',
+  },
+  subscriptionDescription: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: '#9A3412',
+  },
+  subscriptionBenefits: {
+    gap: 10,
+  },
+  subscriptionAction: {
+    marginTop: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderTopWidth: 1,
+    borderTopColor: '#FED7AA',
+    paddingTop: 12,
+  },
+  subscriptionActionText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#7C2D12',
+  },
+  subscriptionBenefit: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  subscriptionBenefitText: {
+    fontSize: 14,
+    color: '#7C2D12',
+    fontWeight: '600',
+  },
   sectionTitle: {
     fontSize: 18,
     fontWeight: 'bold',
     color: '#000',
     marginBottom: 12,
+  },
+  purchaseList: {
+    gap: 10,
+  },
+  purchaseCard: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderRadius: 16,
+    padding: 16,
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  purchaseTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  purchaseMeta: {
+    marginTop: 4,
+    fontSize: 13,
+    color: '#6B7280',
+  },
+  purchaseStatus: {
+    backgroundColor: '#DCFCE7',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  purchaseStatusText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#166534',
+    textTransform: 'capitalize',
   },
   skillsContainer: {
     flexDirection: 'row',

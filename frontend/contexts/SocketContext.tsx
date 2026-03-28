@@ -1,8 +1,7 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { useAuthStore } from '../store/authStore';
-
-const SOCKET_URL = process.env.EXPO_PUBLIC_BACKEND_URL || '';
+import { BACKEND_URL as SOCKET_URL } from '../services/config';
 
 interface SocketContextType {
   socket: Socket | null;

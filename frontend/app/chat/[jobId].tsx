@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -31,29 +31,16 @@ export default function ChatScreen() {
   const [otherUserId, setOtherUserId] = useState<string | null>(null);
   const flatListRef = useRef<FlatList>(null);
 
-  useEffect(() => {
-    loadJobAndMessages();
-  }, [jobId]);
-
-  useEffect(() => {
-    if (socket) {
-      socket.on('new_message', handleNewMessage);
-      return () => {
-        socket.off('new_message', handleNewMessage);
-      };
-    }
-  }, [socket]);
-
-  const handleNewMessage = (message: any) => {
+  const handleNewMessage = useCallback((message: any) => {
     if (message.job_id === jobId) {
       setMessages((prev) => [...prev, message]);
       setTimeout(() => {
         flatListRef.current?.scrollToEnd({ animated: true });
       }, 100);
     }
-  };
+  }, [jobId]);
 
-  const loadJobAndMessages = async () => {
+  const loadJobAndMessages = useCallback(async () => {
     try {
       // Load job details
       const jobResponse = await jobAPI.getJob(jobId as string);
@@ -77,7 +64,20 @@ export default function ChatScreen() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [jobId, user?._id]);
+
+  useEffect(() => {
+    loadJobAndMessages();
+  }, [loadJobAndMessages]);
+
+  useEffect(() => {
+    if (socket) {
+      socket.on('new_message', handleNewMessage);
+      return () => {
+        socket.off('new_message', handleNewMessage);
+      };
+    }
+  }, [handleNewMessage, socket]);
 
   const handleSendMessage = async () => {
     if (!newMessage.trim() || !otherUserId) return;
