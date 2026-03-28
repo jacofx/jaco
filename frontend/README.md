@@ -1,8 +1,8 @@
-# Welcome to your Expo app 👋
+# SolveConnect Frontend
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Expo frontend for the SolveConnect marketplace app.
 
-## Get started
+## Frontend setup
 
 1. Install dependencies
 
@@ -10,41 +10,67 @@ This is an [Expo](https://expo.dev) project created with [`create-expo-app`](htt
    npm install
    ```
 
-2. Start the app
+2. Create a frontend env file from [.env.example](/Users/banksjaco/SOLVECONNECT/jaco/frontend/.env.example)
+
+   ```bash
+   cp .env.example .env
+   ```
+
+3. Start the app
 
    ```bash
    npx expo start
    ```
 
-In the output, you'll find options to open the app in a
+## Backend setup
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+The backend lives in [`../backend`](/Users/banksjaco/SOLVECONNECT/jaco/backend).
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+1. Create a backend env file from [../backend/.env.example](/Users/banksjaco/SOLVECONNECT/jaco/backend/.env.example)
 
-## Get a fresh project
+   ```bash
+   cp ../backend/.env.example ../backend/.env
+   ```
 
-When you're ready, run:
+2. Required backend env vars
 
-```bash
-npm run reset-project
+   ```env
+   MONGO_URL=mongodb://localhost:27017
+   DB_NAME=solveconnect
+   SECRET_KEY=change-me
+   STRIPE_SECRET_KEY=sk_test_...
+   STRIPE_WEBHOOK_SECRET=whsec_...
+   PAYMENT_REDIRECT_URI=frontend://ads-payment
+   ```
+
+3. Run the backend from the `backend` directory with your normal FastAPI entry command.
+
+## Stripe ads flow
+
+Promoted ads use Stripe Checkout.
+
+- `POST /api/ads/checkout` creates the Stripe Checkout session.
+- `POST /api/ads/verify` confirms the session when the app returns.
+- `POST /api/ads/webhook/stripe` confirms payment server-to-server from Stripe webhooks.
+
+### Stripe webhook
+
+Point your Stripe webhook to:
+
+```text
+https://your-backend-domain/api/ads/webhook/stripe
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+Listen for:
 
-## Learn more
+- `checkout.session.completed`
 
-To learn more about developing your project with Expo, look at the following resources:
+### Expo deep link
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+The app scheme is `frontend`, so Stripe Checkout returns to:
 
-## Join the community
+```text
+frontend://ads-payment
+```
 
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+If you change the scheme in [app.json](/Users/banksjaco/SOLVECONNECT/jaco/frontend/app.json), update `PAYMENT_REDIRECT_URI` to match.
