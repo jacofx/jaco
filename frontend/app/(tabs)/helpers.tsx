@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -26,15 +26,7 @@ export default function HelpersScreen() {
   const [selectedCategory, setSelectedCategory] = useState(params.category as string || '');
   const [location, setLocation] = useState<any>(null);
 
-  useEffect(() => {
-    loadLocation();
-  }, []);
-
-  useEffect(() => {
-    loadHelpers();
-  }, [selectedCategory]);
-
-  const loadLocation = async () => {
+  const loadLocation = useCallback(async () => {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status === 'granted') {
@@ -44,9 +36,9 @@ export default function HelpersScreen() {
     } catch (error) {
       console.error('Error getting location:', error);
     }
-  };
+  }, []);
 
-  const loadHelpers = async () => {
+  const loadHelpers = useCallback(async () => {
     setLoading(true);
     try {
       const params: any = {};
@@ -65,7 +57,15 @@ export default function HelpersScreen() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [location, selectedCategory]);
+
+  useEffect(() => {
+    loadLocation();
+  }, [loadLocation]);
+
+  useEffect(() => {
+    loadHelpers();
+  }, [loadHelpers]);
 
   const filteredHelpers = helpers.filter((helper) =>
     helper.name.toLowerCase().includes(searchQuery.toLowerCase())

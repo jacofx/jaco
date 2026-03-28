@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -12,7 +12,7 @@ import {
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { jobAPI, userAPI, reviewAPI } from '../../services/api';
+import { getJobPromotion, jobAPI, userAPI } from '../../services/api';
 import { useAuthStore } from '../../store/authStore';
 
 export default function JobDetailScreen() {
@@ -25,11 +25,7 @@ export default function JobDetailScreen() {
   const [jobUser, setJobUser] = useState<any>(null);
   const [helper, setHelper] = useState<any>(null);
 
-  useEffect(() => {
-    loadJobDetails();
-  }, [id]);
-
-  const loadJobDetails = async () => {
+  const loadJobDetails = useCallback(async () => {
     try {
       const response = await jobAPI.getJob(id as string);
       setJob(response.data);
@@ -45,12 +41,16 @@ export default function JobDetailScreen() {
         const helperResponse = await userAPI.getUser(response.data.helper_id);
         setHelper(helperResponse.data);
       }
-    } catch (error) {
+    } catch {
       Alert.alert('Error', 'Failed to load job details');
     } finally {
       setLoading(false);
     }
-  };
+  }, [id]);
+
+  useEffect(() => {
+    loadJobDetails();
+  }, [loadJobDetails]);
 
   const handleAcceptJob = async () => {
     setActionLoading(true);
@@ -120,6 +120,7 @@ export default function JobDetailScreen() {
   const isHelper = user?._id === job.helper_id;
   const canAccept = user?.role === 'helper' && job.status === 'posted';
   const canChat = (isJobPoster || isHelper) && job.status !== 'posted';
+  const promotion = getJobPromotion(job);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -137,6 +138,29 @@ export default function JobDetailScreen() {
         </View>
 
         <Text style={styles.title}>{job.title}</Text>
+
+        {promotion && promotion.id !== 'free' && (
+          <View
+            style={[
+              styles.promotionBanner,
+              promotion.id === 'top' ? styles.promotionBannerTop : styles.promotionBannerBoost,
+            ]}
+          >
+            <Ionicons
+              name={promotion.id === 'top' ? 'flash' : 'trending-up'}
+              size={18}
+              color="#111827"
+            />
+            <View style={styles.promotionCopy}>
+              <Text style={styles.promotionTitle}>{promotion.label}</Text>
+              <Text style={styles.promotionText}>
+                {promotion.id === 'top'
+                  ? 'This request is pinned with urgent priority and featured placement.'
+                  : 'This request has extra visibility and higher placement.'}
+              </Text>
+            </View>
+          </View>
+        )}
         
         <View style={styles.metaContainer}>
           <View style={styles.metaItem}>
@@ -305,6 +329,38 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#000',
     marginBottom: 16,
+  },
+  promotionBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    borderRadius: 18,
+    padding: 16,
+    marginBottom: 16,
+  },
+  promotionBannerBoost: {
+    backgroundColor: '#FFFBEB',
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+  },
+  promotionBannerTop: {
+    backgroundColor: '#FFF7ED',
+    borderWidth: 1,
+    borderColor: '#FDBA74',
+  },
+  promotionCopy: {
+    flex: 1,
+    gap: 4,
+  },
+  promotionTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  promotionText: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: '#4B5563',
   },
   metaContainer: {
     gap: 8,

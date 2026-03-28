@@ -10,11 +10,13 @@ import {
   ScrollView,
   Alert,
   ActivityIndicator,
+  Image,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { authAPI } from '../../services/api';
 import { useAuthStore } from '../../store/authStore';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { getApiErrorMessage } from '../../services/error';
 
 export default function RegisterScreen() {
   const router = useRouter();
@@ -28,20 +30,27 @@ export default function RegisterScreen() {
   const [isLoading, setIsLoading] = useState(false);
 
   const handleRegister = async () => {
-    if (!name || !password || (!email && !phone)) {
-      Alert.alert('Error', 'Please fill in all required fields');
+    const trimmedName = name.trim();
+    const trimmedEmail = email.trim().toLowerCase();
+    const trimmedPhone = phone.trim();
+    const trimmedPassword = password.trim();
+    const skillsArray =
+      role === 'helper' && skills.trim()
+        ? skills.split(',').map((skill) => skill.trim()).filter(Boolean)
+        : [];
+
+    if (!trimmedName || !trimmedPassword || !trimmedEmail) {
+      Alert.alert('Error', 'Name, email, and password are required');
       return;
     }
 
     setIsLoading(true);
     try {
-      const skillsArray = role === 'helper' && skills ? skills.split(',').map(s => s.trim()) : [];
-      
       const response = await authAPI.register({
-        name,
-        email: email || undefined,
-        phone: phone || undefined,
-        password,
+        name: trimmedName,
+        email: trimmedEmail,
+        phone: trimmedPhone || undefined,
+        password: trimmedPassword,
         role,
         skills: skillsArray,
       });
@@ -50,16 +59,16 @@ export default function RegisterScreen() {
       
       await login(access_token, {
         _id: user_id,
-        name,
-        email,
-        phone,
+        name: trimmedName,
+        email: trimmedEmail,
+        phone: trimmedPhone,
         role,
         skills: skillsArray,
       });
 
       router.replace('/(tabs)');
     } catch (error: any) {
-      Alert.alert('Registration Failed', error.response?.data?.detail || 'Please try again');
+      Alert.alert('Registration Failed', getApiErrorMessage(error, 'Please try again'));
     } finally {
       setIsLoading(false);
     }
@@ -73,8 +82,17 @@ export default function RegisterScreen() {
       >
         <ScrollView contentContainerStyle={styles.scrollContent}>
           <View style={styles.content}>
-            <Text style={styles.title}>Create Account</Text>
-            <Text style={styles.subtitle}>Join SolveConnect today</Text>
+            <View style={styles.brandPanel}>
+              <View style={styles.logoWrap}>
+                <Image
+                  source={require('../../assets/images/solveconnect-logo.png')}
+                  style={styles.logo}
+                  resizeMode="contain"
+                />
+              </View>
+              <Text style={styles.title}>Create Account</Text>
+              <Text style={styles.subtitle}>Join SolveConnect today</Text>
+            </View>
 
             <View style={styles.form}>
               <TextInput
@@ -92,12 +110,13 @@ export default function RegisterScreen() {
                 onChangeText={setEmail}
                 keyboardType="email-address"
                 autoCapitalize="none"
+                autoCorrect={false}
                 placeholderTextColor="#999"
               />
 
               <TextInput
                 style={styles.input}
-                placeholder="Phone (optional)"
+                placeholder="Phone"
                 value={phone}
                 onChangeText={setPhone}
                 keyboardType="phone-pad"
@@ -204,16 +223,38 @@ const styles = StyleSheet.create({
     padding: 24,
     paddingTop: 40,
   },
+  brandPanel: {
+    backgroundColor: '#111827',
+    borderRadius: 28,
+    padding: 24,
+    marginBottom: 28,
+    alignItems: 'center',
+  },
+  logoWrap: {
+    width: 74,
+    height: 74,
+    borderRadius: 22,
+    backgroundColor: '#1F2937',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  logo: {
+    width: 42,
+    height: 42,
+    tintColor: '#fff',
+  },
   title: {
     fontSize: 32,
     fontWeight: 'bold',
-    color: '#000',
+    color: '#fff',
     marginBottom: 8,
+    textAlign: 'center',
   },
   subtitle: {
     fontSize: 16,
-    color: '#666',
-    marginBottom: 32,
+    color: '#D1D5DB',
+    textAlign: 'center',
   },
   form: {
     gap: 16,

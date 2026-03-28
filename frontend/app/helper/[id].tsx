@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -20,11 +20,7 @@ export default function HelperProfileScreen() {
   const [reviews, setReviews] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    loadHelperProfile();
-  }, [id]);
-
-  const loadHelperProfile = async () => {
+  const loadHelperProfile = useCallback(async () => {
     try {
       const [helperResponse, reviewsResponse] = await Promise.all([
         userAPI.getUser(id as string),
@@ -38,7 +34,11 @@ export default function HelperProfileScreen() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [id]);
+
+  useEffect(() => {
+    loadHelperProfile();
+  }, [loadHelperProfile]);
 
   if (loading) {
     return (

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -12,7 +12,7 @@ import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '../../store/authStore';
-import { jobAPI } from '../../services/api';
+import { getJobPromotion, jobAPI } from '../../services/api';
 import * as Location from 'expo-location';
 
 export default function RequestsScreen() {
@@ -22,26 +22,7 @@ export default function RequestsScreen() {
   const [loading, setLoading] = useState(false);
   const [location, setLocation] = useState<any>(null);
 
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  const loadData = async () => {
-    try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status === 'granted') {
-        const loc = await Location.getCurrentPositionAsync({});
-        setLocation(loc.coords);
-        loadJobs(loc.coords);
-      } else {
-        loadJobs();
-      }
-    } catch (error) {
-      loadJobs();
-    }
-  };
-
-  const loadJobs = async (coords?: any) => {
+  const loadJobs = useCallback(async (coords?: any) => {
     setLoading(true);
     try {
       let response;
@@ -60,12 +41,31 @@ export default function RequestsScreen() {
       }
       
       setJobs(response.data);
-    } catch (error) {
+    } catch {
       Alert.alert('Error', 'Failed to load requests');
     } finally {
       setLoading(false);
     }
-  };
+  }, [user?.role]);
+
+  const loadData = useCallback(async () => {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status === 'granted') {
+        const loc = await Location.getCurrentPositionAsync({});
+        setLocation(loc.coords);
+        loadJobs(loc.coords);
+      } else {
+        loadJobs();
+      }
+    } catch {
+      loadJobs();
+    }
+  }, [loadJobs]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   const handleAcceptJob = async (jobId: string) => {
     try {
@@ -77,52 +77,92 @@ export default function RequestsScreen() {
     }
   };
 
-  const renderJobItem = ({ item }: any) => (
-    <TouchableOpacity
-      style={styles.jobCard}
-      onPress={() => router.push(`/job/${item._id}`)}
-    >
-      <View style={styles.jobHeader}>
-        <Text style={styles.jobTitle}>{item.title}</Text>
-        {item.distance && (
-          <View style={styles.distanceBadge}>
-            <Ionicons name="location-outline" size={14} color="#666" />
-            <Text style={styles.distanceText}>{item.distance} km</Text>
+  const renderJobItem = ({ item }: any) => {
+    const promotion = getJobPromotion(item);
+
+    return (
+      <TouchableOpacity
+        style={[
+          styles.jobCard,
+          promotion?.id === 'top' && styles.jobCardTop,
+          promotion?.id === 'boost' && styles.jobCardBoost,
+        ]}
+        onPress={() => router.push(`/job/${item._id}`)}
+      >
+        <View style={styles.jobHeader}>
+          <Text style={styles.jobTitle}>{item.title}</Text>
+          {item.distance && (
+            <View style={styles.distanceBadge}>
+              <Ionicons name="location-outline" size={14} color="#666" />
+              <Text style={styles.distanceText}>{item.distance} km</Text>
+            </View>
+          )}
+        </View>
+
+        {promotion && promotion.id !== 'free' && (
+          <View
+            style={[
+              styles.promotionBadge,
+              promotion.id === 'top' ? styles.promotionBadgeTop : styles.promotionBadgeBoost,
+            ]}
+          >
+            <Ionicons
+              name={promotion.id === 'top' ? 'flash' : 'trending-up'}
+              size={14}
+              color="#111827"
+            />
+            <Text style={styles.promotionBadgeText}>{promotion.label}</Text>
           </View>
         )}
-      </View>
-      
-      <Text style={styles.jobDescription} numberOfLines={2}>
-        {item.description}
-      </Text>
-      
-      <View style={styles.jobMeta}>
-        <Text style={styles.budget}>${item.budget}</Text>
-        <View style={styles.statusBadge}>
-          <Text style={styles.statusText}>{item.status.replace('_', ' ')}</Text>
+
+        <Text style={styles.jobDescription} numberOfLines={2}>
+          {item.description}
+        </Text>
+
+        <View style={styles.jobMeta}>
+          <Text style={styles.budget}>${item.budget}</Text>
+          <View style={styles.statusBadge}>
+            <Text style={styles.statusText}>{item.status.replace('_', ' ')}</Text>
+          </View>
         </View>
-      </View>
-      
-      {user?.role === 'helper' && item.status === 'posted' && (
-        <TouchableOpacity
-          style={styles.acceptButton}
-          onPress={() => handleAcceptJob(item._id)}
-        >
-          <Text style={styles.acceptButtonText}>Accept Job</Text>
-        </TouchableOpacity>
-      )}
-      
-      {user?.role === 'need_help' && item.helper_name && (
-        <View style={styles.helperInfo}>
-          <Ionicons name="person-outline" size={16} color="#666" />
-          <Text style={styles.helperText}>Helper: {item.helper_name}</Text>
-        </View>
-      )}
-    </TouchableOpacity>
-  );
+
+        {user?.role === 'helper' && item.status === 'posted' && (
+          <TouchableOpacity
+            style={styles.acceptButton}
+            onPress={() => handleAcceptJob(item._id)}
+          >
+            <Text style={styles.acceptButtonText}>Accept Job</Text>
+          </TouchableOpacity>
+        )}
+
+        {user?.role === 'need_help' && item.helper_name && (
+          <View style={styles.helperInfo}>
+            <Ionicons name="person-outline" size={16} color="#666" />
+            <Text style={styles.helperText}>Helper: {item.helper_name}</Text>
+          </View>
+        )}
+      </TouchableOpacity>
+    );
+  };
 
   return (
     <SafeAreaView style={styles.container}>
+      {user?.role === 'need_help' && (
+        <View style={styles.subscriptionBanner}>
+          <View style={styles.subscriptionCopy}>
+            <Text style={styles.subscriptionLabel}>Promote your ad</Text>
+            <Text style={styles.subscriptionTitle}>Upgrade a request to boosted or top</Text>
+            <Text style={styles.subscriptionText}>
+              Featured requests stay ahead of free listings and collect responses faster.
+            </Text>
+          </View>
+          <View style={styles.subscriptionPriceBlock}>
+            <Text style={styles.subscriptionPrice}>From NGN 2,500</Text>
+            <Text style={styles.subscriptionPriceMeta}>7-day boost</Text>
+          </View>
+        </View>
+      )}
+
       {jobs.length === 0 && !loading ? (
         <View style={styles.emptyContainer}>
           <Ionicons name="folder-open-outline" size={64} color="#ccc" />
@@ -152,6 +192,53 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#fff',
   },
+  subscriptionBanner: {
+    marginHorizontal: 16,
+    marginTop: 16,
+    marginBottom: 4,
+    borderRadius: 20,
+    backgroundColor: '#111827',
+    padding: 16,
+    flexDirection: 'row',
+    gap: 12,
+  },
+  subscriptionCopy: {
+    flex: 1,
+    gap: 4,
+  },
+  subscriptionLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#FDE68A',
+    textTransform: 'uppercase',
+  },
+  subscriptionTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  subscriptionText: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: '#D1D5DB',
+  },
+  subscriptionPriceBlock: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#1F2937',
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 2,
+  },
+  subscriptionPrice: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  subscriptionPriceMeta: {
+    fontSize: 11,
+    color: '#9CA3AF',
+  },
   listContent: {
     padding: 16,
   },
@@ -162,6 +249,14 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     borderWidth: 1,
     borderColor: '#f0f0f0',
+  },
+  jobCardBoost: {
+    borderColor: '#FDE68A',
+    backgroundColor: '#FFFBEB',
+  },
+  jobCardTop: {
+    borderColor: '#FDBA74',
+    backgroundColor: '#FFF7ED',
   },
   jobHeader: {
     flexDirection: 'row',
@@ -188,6 +283,27 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
     marginBottom: 12,
+  },
+  promotionBadge: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    marginBottom: 10,
+  },
+  promotionBadgeBoost: {
+    backgroundColor: '#FEF3C7',
+  },
+  promotionBadgeTop: {
+    backgroundColor: '#FED7AA',
+  },
+  promotionBadgeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#111827',
   },
   jobMeta: {
     flexDirection: 'row',
