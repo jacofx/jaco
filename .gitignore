@@ -51,6 +51,7 @@ __pycache__/
 *pyc*
 venv/
 .venv/
+.pytest_cache/
 
 # Development tools
 chainlit.md
@@ -81,3 +82,5 @@ android-sdk/ -e
 # Environment files
 *.env
 *.env.*
+
+frontend/.metro-cache/
