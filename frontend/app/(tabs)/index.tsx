@@ -7,40 +7,72 @@ import {
   ScrollView,
   RefreshControl,
   Alert,
+  ImageBackground,
+  ImageSourcePropType,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useAuthStore } from '../../store/authStore';
 import { getJobPromotion, jobAPI } from '../../services/api';
 import * as Location from 'expo-location';
 
 const CATEGORIES = [
-  { id: 'electrician', name: 'Electrician', icon: 'flash' },
-  { id: 'plumber', name: 'Plumber', icon: 'water' },
-  { id: 'generator-tech', name: 'Generator Tech', icon: 'hardware-chip' },
-  { id: 'tailor', name: 'Tailor/Fashion', icon: 'shirt' },
-  { id: 'hairdresser', name: 'Hairdresser', icon: 'cut' },
-  { id: 'mechanic', name: 'Mechanic', icon: 'car' },
-  { id: 'ac-tech', name: 'AC Technician', icon: 'snow' },
-  { id: 'phone-repair', name: 'Phone Repair', icon: 'phone-portrait' },
-  { id: 'caterer', name: 'Caterer', icon: 'restaurant' },
-  { id: 'event-planner', name: 'Event Planner', icon: 'calendar' },
-  { id: 'photographer', name: 'Photographer', icon: 'camera' },
-  { id: 'makeup-artist', name: 'Makeup Artist', icon: 'color-palette' },
-  { id: 'driver', name: 'Driver', icon: 'car-sport' },
-  { id: 'cleaner', name: 'Cleaner', icon: 'sparkles' },
-  { id: 'bricklayer', name: 'Bricklayer', icon: 'cube' },
-  { id: 'carpenter', name: 'Carpenter', icon: 'hammer' },
-  { id: 'painter', name: 'Painter', icon: 'brush' },
-  { id: 'welder', name: 'Welder', icon: 'flame' },
-  { id: 'tiler', name: 'Tiler', icon: 'grid' },
-  { id: 'tutor', name: 'Tutor', icon: 'school' },
-  { id: 'security', name: 'Security Guard', icon: 'shield-checkmark' },
-  { id: 'laundry', name: 'Laundry Service', icon: 'water' },
-  { id: 'dj', name: 'DJ', icon: 'musical-notes' },
-  { id: 'dispatch', name: 'Dispatch Rider', icon: 'bicycle' },
+  { id: 'electrician', name: 'Electrician', icon: 'flash', accent: '#FACC15', surface: '#FEF3C7', ink: '#92400E', ornament: 'flash-outline', backgroundIcon: 'transmission-tower' },
+  { id: 'plumber', name: 'Plumber', icon: 'water', accent: '#38BDF8', surface: '#E0F2FE', ink: '#0C4A6E', ornament: 'build-outline', backgroundIcon: 'pipe-wrench' },
+  { id: 'generator-tech', name: 'Generator Tech', icon: 'hardware-chip', accent: '#A78BFA', surface: '#EDE9FE', ink: '#4C1D95', ornament: 'flash-outline', backgroundIcon: 'generator-portable' },
+  { id: 'tailor', name: 'Tailor/Fashion', icon: 'shirt', accent: '#F472B6', surface: '#FCE7F3', ink: '#9D174D', ornament: 'cut-outline', backgroundIcon: 'sewing-machine' },
+  { id: 'hairdresser', name: 'Hairdresser', icon: 'cut', accent: '#FB7185', surface: '#FFE4E6', ink: '#9F1239', ornament: 'sparkles-outline', backgroundIcon: 'hair-dryer' },
+  { id: 'mechanic', name: 'Mechanic', icon: 'car', accent: '#F97316', surface: '#FFEDD5', ink: '#9A3412', ornament: 'cog-outline', backgroundIcon: 'car-wrench' },
+  { id: 'ac-tech', name: 'AC Technician', icon: 'snow', accent: '#60A5FA', surface: '#DBEAFE', ink: '#1D4ED8', ornament: 'snow-outline', backgroundIcon: 'air-conditioner' },
+  { id: 'phone-repair', name: 'Phone Repair', icon: 'phone-portrait', accent: '#22C55E', surface: '#DCFCE7', ink: '#166534', ornament: 'construct-outline', backgroundIcon: 'cellphone-cog' },
+  { id: 'caterer', name: 'Caterer', icon: 'restaurant', accent: '#F59E0B', surface: '#FEF3C7', ink: '#92400E', ornament: 'wine-outline', backgroundIcon: 'silverware-fork-knife' },
+  { id: 'event-planner', name: 'Event Planner', icon: 'calendar', accent: '#8B5CF6', surface: '#F3E8FF', ink: '#6B21A8', ornament: 'balloon-outline', backgroundIcon: 'calendar-star' },
+  { id: 'event-ticket-sales', name: 'Event Ticket Sales', icon: 'ticket', accent: '#F43F5E', surface: '#FFE4E6', ink: '#9F1239', ornament: 'pricetag-outline', backgroundIcon: 'ticket-confirmation' },
+  { id: 'photographer', name: 'Photographer', icon: 'camera', accent: '#0EA5E9', surface: '#E0F2FE', ink: '#075985', ornament: 'aperture-outline', backgroundIcon: 'camera-iris' },
+  { id: 'makeup-artist', name: 'Makeup Artist', icon: 'color-palette', accent: '#EC4899', surface: '#FCE7F3', ink: '#9D174D', ornament: 'flower-outline', backgroundIcon: 'lipstick' },
+  { id: 'driver', name: 'Driver', icon: 'car-sport', accent: '#14B8A6', surface: '#CCFBF1', ink: '#115E59', ornament: 'navigate-outline', backgroundIcon: 'steering' },
+  { id: 'cleaner', name: 'Cleaner', icon: 'sparkles', accent: '#2DD4BF', surface: '#CCFBF1', ink: '#115E59', ornament: 'water-outline', backgroundIcon: 'spray-bottle' },
+  { id: 'bricklayer', name: 'Bricklayer', icon: 'cube', accent: '#B45309', surface: '#FDE68A', ink: '#78350F', ornament: 'apps-outline', backgroundIcon: 'wall' },
+  { id: 'carpenter', name: 'Carpenter', icon: 'hammer', accent: '#D97706', surface: '#FED7AA', ink: '#7C2D12', ornament: 'square-outline', backgroundIcon: 'hammer-screwdriver' },
+  { id: 'painter', name: 'Painter', icon: 'brush', accent: '#8B5CF6', surface: '#EDE9FE', ink: '#5B21B6', ornament: 'color-fill-outline', backgroundIcon: 'format-paint' },
+  { id: 'welder', name: 'Welder', icon: 'flame', accent: '#EF4444', surface: '#FEE2E2', ink: '#991B1B', ornament: 'flash-outline', backgroundIcon: 'welding-torch' },
+  { id: 'tiler', name: 'Tiler', icon: 'grid', accent: '#0F766E', surface: '#CCFBF1', ink: '#134E4A', ornament: 'grid-outline', backgroundIcon: 'grid-large' },
+  { id: 'tutor', name: 'Tutor', icon: 'school', accent: '#2563EB', surface: '#DBEAFE', ink: '#1E3A8A', ornament: 'book-outline', backgroundIcon: 'book-education' },
+  { id: 'security', name: 'Security Guard', icon: 'shield-checkmark', accent: '#475569', surface: '#E2E8F0', ink: '#1E293B', ornament: 'lock-closed-outline', backgroundIcon: 'shield-account' },
+  { id: 'laundry', name: 'Laundry Service', icon: 'water', accent: '#06B6D4', surface: '#CFFAFE', ink: '#155E75', ornament: 'shirt-outline', backgroundIcon: 'washing-machine' },
+  { id: 'dj', name: 'DJ', icon: 'musical-notes', accent: '#7C3AED', surface: '#EDE9FE', ink: '#4C1D95', ornament: 'disc-outline', backgroundIcon: 'disc-player' },
+  { id: 'dispatch', name: 'Dispatch Rider', icon: 'bicycle', accent: '#16A34A', surface: '#DCFCE7', ink: '#166534', ornament: 'speedometer-outline', backgroundIcon: 'bike-fast' },
 ];
+
+const CATEGORY_IMAGES: Partial<Record<string, ImageSourcePropType>> = {
+  electrician: require('../../assets/categories/electrician.png'),
+  plumber: require('../../assets/categories/plumber.png'),
+  'generator-tech': require('../../assets/categories/generator-tech.png'),
+  tailor: require('../../assets/categories/tailor.png'),
+  hairdresser: require('../../assets/categories/hairdresser.png'),
+  mechanic: require('../../assets/categories/mechanic.png'),
+  'ac-tech': require('../../assets/categories/ac-tech.png'),
+  'phone-repair': require('../../assets/categories/phone-repair.png'),
+  caterer: require('../../assets/categories/caterer.png'),
+  'event-planner': require('../../assets/categories/event-planner.png'),
+  'event-ticket-sales': require('../../assets/categories/event-ticket-sales.png'),
+  photographer: require('../../assets/categories/photographer.png'),
+  'makeup-artist': require('../../assets/categories/makeup-artist.png'),
+  driver: require('../../assets/categories/driver.png'),
+  cleaner: require('../../assets/categories/cleaner.png'),
+  bricklayer: require('../../assets/categories/bricklayer.png'),
+  carpenter: require('../../assets/categories/carpenter.png'),
+  painter: require('../../assets/categories/painter.png'),
+  welder: require('../../assets/categories/welder.png'),
+  tiler: require('../../assets/categories/tiler.png'),
+  tutor: require('../../assets/categories/tutor.png'),
+  security: require('../../assets/categories/security.png'),
+  laundry: require('../../assets/categories/laundry.png'),
+  dj: require('../../assets/categories/dj.png'),
+  dispatch: require('../../assets/categories/dispatch.png'),
+};
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -92,6 +124,67 @@ export default function HomeScreen() {
 
   const onRefresh = () => {
     loadLocation();
+  };
+
+  const renderCategoryArtwork = (category: typeof CATEGORIES[number]) => {
+    const imageSource = CATEGORY_IMAGES[category.id];
+
+    if (imageSource) {
+      return (
+        <ImageBackground
+          source={imageSource}
+          style={styles.categoryArtwork}
+          imageStyle={styles.categoryArtworkImage}
+        >
+          <View style={styles.categoryArtworkOverlay} />
+          <View style={styles.categoryLabelOverlay}>
+            <Text style={styles.categoryName}>{category.name}</Text>
+          </View>
+        </ImageBackground>
+      );
+    }
+
+    return (
+      <View style={styles.categoryArtwork}>
+        <MaterialCommunityIcons
+          name={category.backgroundIcon as any}
+          size={64}
+          color={category.ink}
+          style={styles.categoryBackgroundIcon}
+        />
+        <View
+          style={[
+            styles.categoryGlow,
+            { backgroundColor: category.accent },
+          ]}
+        />
+        <View
+          style={[
+            styles.categoryOrbit,
+            { borderColor: category.ink },
+          ]}
+        />
+        <View
+          style={[
+            styles.categoryIconWrap,
+            { backgroundColor: category.accent },
+          ]}
+        >
+          <Ionicons name={category.icon as any} size={28} color="#fff" />
+        </View>
+        <View
+          style={[
+            styles.categoryMiniBadge,
+            { backgroundColor: '#fff' },
+          ]}
+        >
+          <Ionicons name={category.ornament as any} size={14} color={category.ink} />
+        </View>
+        <View style={styles.categoryLabelOverlay}>
+          <Text style={styles.categoryName}>{category.name}</Text>
+        </View>
+      </View>
+    );
   };
 
   return (
@@ -160,11 +253,10 @@ export default function HomeScreen() {
             {CATEGORIES.map((category) => (
               <TouchableOpacity
                 key={category.id}
-                style={styles.categoryCard}
+                style={[styles.categoryCard, { backgroundColor: category.surface }]}
                 onPress={() => router.push(`/(tabs)/helpers?category=${category.id}`)}
               >
-                <Ionicons name={category.icon as any} size={32} color="#000" />
-                <Text style={styles.categoryName}>{category.name}</Text>
+                {renderCategoryArtwork(category)}
               </TouchableOpacity>
             ))}
           </View>
@@ -380,25 +472,98 @@ const styles = StyleSheet.create({
   categoriesGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 12,
+    gap: 8,
   },
   categoryCard: {
-    width: '30%',
-    aspectRatio: 1,
-    backgroundColor: '#f9f9f9',
+    width: '32%',
+    borderRadius: 18,
+    justifyContent: 'flex-start',
+    padding: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(15, 23, 42, 0.08)',
+    overflow: 'hidden',
+  },
+  categoryArtwork: {
+    width: '100%',
+    height: 94,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.46)',
+    overflow: 'hidden',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  categoryArtworkImage: {
+    borderRadius: 16,
+  },
+  categoryArtworkOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(15, 23, 42, 0.10)',
+    borderRadius: 16,
+  },
+  categoryLabelOverlay: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingHorizontal: 8,
+    paddingTop: 16,
+    paddingBottom: 8,
+    backgroundColor: 'rgba(15, 23, 42, 0.28)',
+  },
+  categoryGlow: {
+    position: 'absolute',
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    opacity: 0.18,
+    top: -12,
+    right: -18,
+  },
+  categoryBackgroundIcon: {
+    position: 'absolute',
+    left: 6,
+    top: 6,
+    opacity: 0.12,
+  },
+  categoryOrbit: {
+    position: 'absolute',
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    borderWidth: 1,
+    opacity: 0.18,
+    top: 8,
+    left: 10,
+  },
+  categoryIconWrap: {
+    width: 46,
+    height: 46,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 3,
+  },
+  categoryMiniBadge: {
+    position: 'absolute',
+    right: 10,
+    bottom: 10,
+    width: 24,
+    height: 24,
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#f0f0f0',
   },
   categoryName: {
-    marginTop: 8,
     fontSize: 12,
-    fontWeight: '600',
-    color: '#000',
+    fontWeight: '700',
+    color: '#fff',
     textAlign: 'center',
+    lineHeight: 15,
+    width: '100%',
   },
   jobCard: {
     backgroundColor: '#f9f9f9',
