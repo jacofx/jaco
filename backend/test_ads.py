@@ -118,6 +118,44 @@ def test_stripe_verify_marks_payment_completed(client):
     assert fake_db.ad_payments.documents[0]["status"] == "completed"
 
 
+def test_stripe_checkout_uses_client_redirect_uri(client):
+    test_client, _, _, monkeypatch = client
+    captured = {}
+
+    monkeypatch.setattr(core, "PAYMENTS_MODE", "stripe")
+    monkeypatch.setattr(core.stripe, "api_key", "sk_test_123")
+
+    def fake_create(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(id="cs_test_redirect", url="https://checkout.stripe.test/session")
+
+    monkeypatch.setattr(core.stripe.checkout.Session, "create", fake_create)
+
+    checkout_response = test_client.post(
+        "/api/ads/checkout",
+        json={"package_id": "top", "redirect_uri": "http://localhost:8083/ads-payment"},
+    )
+
+    assert checkout_response.status_code == 200
+    assert captured["success_url"].startswith("http://localhost:8083/ads-payment?")
+    assert captured["cancel_url"].startswith("http://localhost:8083/ads-payment?")
+
+
+def test_stripe_checkout_rejects_unsupported_redirect_uri(client):
+    test_client, _, _, monkeypatch = client
+
+    monkeypatch.setattr(core, "PAYMENTS_MODE", "stripe")
+    monkeypatch.setattr(core.stripe, "api_key", "sk_test_123")
+
+    checkout_response = test_client.post(
+        "/api/ads/checkout",
+        json={"package_id": "top", "redirect_uri": "https://evil.example/ads-payment"},
+    )
+
+    assert checkout_response.status_code == 400
+    assert checkout_response.json()["detail"] == "Unsupported checkout redirect URI"
+
+
 def test_stripe_webhook_completes_pending_payment(client):
     test_client, fake_db, _, monkeypatch = client
 
@@ -156,6 +194,104 @@ def test_stripe_webhook_completes_pending_payment(client):
 
     assert webhook_response.status_code == 200
     assert fake_db.ad_payments.documents[0]["status"] == "completed"
+
+
+def test_stripe_webhook_rejects_checkout_session_mismatch(client):
+    test_client, fake_db, _, monkeypatch = client
+
+    monkeypatch.setattr(core, "PAYMENTS_MODE", "stripe")
+    monkeypatch.setattr(core.stripe, "api_key", "sk_test_123")
+    monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_test")
+    monkeypatch.setattr(
+        core.stripe.checkout.Session,
+        "create",
+        lambda **kwargs: SimpleNamespace(id="cs_expected", url="https://checkout.stripe.test/session"),
+    )
+    monkeypatch.setattr(
+        core.stripe.Webhook,
+        "construct_event",
+        lambda payload, signature, secret: {
+            "type": "checkout.session.completed",
+            "data": {
+                "object": {
+                    "id": "cs_other",
+                    "payment_status": "paid",
+                    "metadata": {"payment_id": str(fake_db.ad_payments.documents[0]["_id"])},
+                }
+            },
+        },
+    )
+
+    checkout_response = test_client.post("/api/ads/checkout", json={"package_id": "boost"})
+    assert checkout_response.status_code == 200
+
+    webhook_response = test_client.post(
+        "/api/ads/webhook/stripe",
+        content="{}",
+        headers={"stripe-signature": "signature"},
+    )
+
+    assert webhook_response.status_code == 400
+    assert webhook_response.json()["detail"] == "Checkout session mismatch"
+    assert fake_db.ad_payments.documents[0]["status"] == "pending"
+
+
+def test_stripe_webhook_rejects_unpaid_session(client):
+    test_client, fake_db, _, monkeypatch = client
+
+    monkeypatch.setattr(core, "PAYMENTS_MODE", "stripe")
+    monkeypatch.setattr(core.stripe, "api_key", "sk_test_123")
+    monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_test")
+    monkeypatch.setattr(
+        core.stripe.checkout.Session,
+        "create",
+        lambda **kwargs: SimpleNamespace(id="cs_unpaid", url="https://checkout.stripe.test/session"),
+    )
+    monkeypatch.setattr(
+        core.stripe.Webhook,
+        "construct_event",
+        lambda payload, signature, secret: {
+            "type": "checkout.session.completed",
+            "data": {
+                "object": {
+                    "id": "cs_unpaid",
+                    "payment_status": "unpaid",
+                    "metadata": {"payment_id": str(fake_db.ad_payments.documents[0]["_id"])},
+                }
+            },
+        },
+    )
+
+    checkout_response = test_client.post("/api/ads/checkout", json={"package_id": "boost"})
+    assert checkout_response.status_code == 200
+
+    webhook_response = test_client.post(
+        "/api/ads/webhook/stripe",
+        content="{}",
+        headers={"stripe-signature": "signature"},
+    )
+
+    assert webhook_response.status_code == 400
+    assert webhook_response.json()["detail"] == "Payment not completed"
+    assert fake_db.ad_payments.documents[0]["status"] == "pending"
+
+
+def test_stripe_checkout_failure_cleans_up_pending_payment(client):
+    test_client, fake_db, _, monkeypatch = client
+
+    monkeypatch.setattr(core, "PAYMENTS_MODE", "stripe")
+    monkeypatch.setattr(core.stripe, "api_key", "sk_test_123")
+    monkeypatch.setattr(
+        core.stripe.checkout.Session,
+        "create",
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("stripe unavailable")),
+    )
+
+    checkout_response = test_client.post("/api/ads/checkout", json={"package_id": "boost"})
+
+    assert checkout_response.status_code == 400
+    assert checkout_response.json()["detail"] == "stripe unavailable"
+    assert fake_db.ad_payments.documents == []
 
 
 def test_expired_promotions_are_downgraded_and_notified(client):

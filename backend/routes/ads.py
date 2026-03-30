@@ -22,7 +22,7 @@ async def get_ad_packages():
 
 @core.api_router.post("/ads/checkout")
 async def create_ad_checkout(checkout_data: core.AdCheckoutCreate, current_user: dict = Depends(core.get_current_user)):
-    return await create_ad_checkout_service(current_user, checkout_data.package_id)
+    return await create_ad_checkout_service(current_user, checkout_data.package_id, checkout_data.redirect_uri)
 
 
 @core.api_router.get("/ads/purchases")
@@ -77,6 +77,10 @@ async def stripe_ads_webhook(request: Request):
             except Exception:
                 payment = None
             if payment and payment.get("status") != "completed":
+                if session.get("id") != payment.get("checkout_session_id"):
+                    raise HTTPException(status_code=400, detail="Checkout session mismatch")
+                if session.get("payment_status") != "paid":
+                    raise HTTPException(status_code=400, detail="Payment not completed")
                 await mark_payment_completed(payment, session.get("payment_status", "paid"))
 
     return {"received": True}

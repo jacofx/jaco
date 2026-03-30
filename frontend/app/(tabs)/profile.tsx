@@ -212,13 +212,13 @@ export default function ProfileScreen() {
         )}
 
         <View style={styles.section}>
-          <TouchableOpacity style={styles.menuItem}>
+          <TouchableOpacity style={styles.menuItem} onPress={() => router.push('/edit-profile')}>
             <Ionicons name="person-outline" size={24} color="#000" />
             <Text style={styles.menuItemText}>Edit Profile</Text>
             <Ionicons name="chevron-forward" size={24} color="#ccc" />
           </TouchableOpacity>
           
-          <TouchableOpacity style={styles.menuItem}>
+          <TouchableOpacity style={styles.menuItem} onPress={() => router.push('/location-settings')}>
             <Ionicons name="location-outline" size={24} color="#000" />
             <Text style={styles.menuItemText}>Location Settings</Text>
             <Ionicons name="chevron-forward" size={24} color="#ccc" />
@@ -236,7 +236,7 @@ export default function ProfileScreen() {
             <Ionicons name="chevron-forward" size={24} color="#ccc" />
           </TouchableOpacity>
           
-          <TouchableOpacity style={styles.menuItem}>
+          <TouchableOpacity style={styles.menuItem} onPress={() => router.push('/help-support')}>
             <Ionicons name="help-circle-outline" size={24} color="#000" />
             <Text style={styles.menuItemText}>Help & Support</Text>
             <Ionicons name="chevron-forward" size={24} color="#ccc" />

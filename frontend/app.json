@@ -20,7 +20,7 @@
       "package": "com.solveconnect.app",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#000"
+        "backgroundColor": "#fff"
       },
       "edgeToEdgeEnabled": true,
       "permissions": [

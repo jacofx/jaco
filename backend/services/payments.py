@@ -47,7 +47,11 @@ async def mark_payment_completed(payment: dict, payment_status: str = "paid"):
     return updated_payment
 
 
-async def create_ad_checkout(current_user: dict, package_id: str):
+async def delete_payment(payment_id):
+    await core.db.ad_payments.delete_one({"_id": payment_id})
+
+
+async def create_ad_checkout(current_user: dict, package_id: str, redirect_uri: str | None = None):
     if package_id not in core.PROMOTION_PRESETS:
         raise core.HTTPException(status_code=400, detail="Unsupported ad package")
 
@@ -72,7 +76,7 @@ async def create_ad_checkout(current_user: dict, package_id: str):
 
     if pricing["amount"] > 0 and core.PAYMENTS_MODE == "stripe":
         payment_id = str(result.inserted_id)
-        redirect_base = core.get_checkout_redirect_base()
+        redirect_base = core.validate_checkout_redirect_base(redirect_uri)
         success_url = f"{redirect_base}?payment_id={payment_id}&session_id={{CHECKOUT_SESSION_ID}}&status=success"
         cancel_url = f"{redirect_base}?payment_id={payment_id}&status=cancelled"
         try:
@@ -100,6 +104,7 @@ async def create_ad_checkout(current_user: dict, package_id: str):
                 },
             )
         except Exception as exc:
+            await delete_payment(result.inserted_id)
             raise core.HTTPException(status_code=400, detail=str(exc))
 
         checkout_url = session.url

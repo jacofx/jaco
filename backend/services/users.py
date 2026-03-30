@@ -42,7 +42,7 @@ async def get_helpers(category: Optional[str] = None, lat: Optional[float] = Non
     result = []
     for helper in helpers:
         helper["_id"] = str(helper["_id"])
-        if lat and lng and helper.get("location"):
+        if lat is not None and lng is not None and helper.get("location"):
             helper["distance"] = core.calculate_distance(
                 lat,
                 lng,
@@ -53,6 +53,6 @@ async def get_helpers(category: Optional[str] = None, lat: Optional[float] = Non
             helper["distance"] = None
         result.append(helper)
 
-    if lat and lng:
+    if lat is not None and lng is not None:
         result = sorted(result, key=lambda item: item["distance"] if item["distance"] is not None else float("inf"))
     return result

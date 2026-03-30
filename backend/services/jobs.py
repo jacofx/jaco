@@ -8,6 +8,11 @@ from services.notifications import create_notification
 from services.payments import validate_job_payment
 from services.promotions import hydrate_job, normalize_job_promotion
 
+ALLOWED_STATUS_TRANSITIONS = {
+    core.JobStatus.ACCEPTED: {core.JobStatus.IN_PROGRESS, core.JobStatus.COMPLETED},
+    core.JobStatus.IN_PROGRESS: {core.JobStatus.COMPLETED},
+}
+
 
 async def create_job(current_user: dict, job_dict: dict):
     payment = await validate_job_payment(current_user, job_dict)
@@ -65,13 +70,13 @@ async def list_jobs(
         job = await hydrate_job(job)
         if job["user_id"] in user_map:
             job["user_name"] = user_map[job["user_id"]]["name"]
-        if lat and lng and job.get("location"):
+        if lat is not None and lng is not None and job.get("location"):
             job["distance"] = core.calculate_distance(lat, lng, job["location"]["lat"], job["location"]["lng"])
         else:
             job["distance"] = None
         result.append(job)
 
-    if lat and lng:
+    if lat is not None and lng is not None:
         result = sorted(
             result,
             key=lambda item: (
@@ -174,10 +179,13 @@ async def update_job_status(job_id: str, current_user_id: str, status_update: co
             raise core.HTTPException(status_code=404, detail="Job not found")
         if str(job["user_id"]) != current_user_id and (not job.get("helper_id") or str(job["helper_id"]) != current_user_id):
             raise core.HTTPException(status_code=403, detail="Not authorized")
+        if not status_update.status:
+            raise core.HTTPException(status_code=400, detail="Status is required")
+        if status_update.status not in ALLOWED_STATUS_TRANSITIONS.get(job["status"], set()):
+            raise core.HTTPException(status_code=400, detail="Invalid status transition")
 
         update_data = {"updated_at": datetime.utcnow()}
-        if status_update.status:
-            update_data["status"] = status_update.status
+        update_data["status"] = status_update.status
 
         await core.db.jobs.update_one({"_id": ObjectId(job_id)}, {"$set": update_data})
         updated_job = await core.db.jobs.find_one({"_id": ObjectId(job_id)})

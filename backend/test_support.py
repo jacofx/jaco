@@ -70,6 +70,12 @@ class FakeCollection:
                     document[key] = value
                 break
 
+    async def delete_one(self, query):
+        for index, document in enumerate(self.documents):
+            if matches_query(document, query):
+                del self.documents[index]
+                break
+
     async def count_documents(self, query):
         return sum(1 for document in self.documents if matches_query(document, query))
 

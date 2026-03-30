@@ -7,6 +7,9 @@ import core
 
 @core.api_router.post("/auth/register")
 async def register(user_data: core.UserRegister):
+    if not user_data.email and not user_data.phone:
+        raise HTTPException(status_code=400, detail="Email or phone required")
+
     if user_data.email:
         existing_user = await core.db.users.find_one({"email": user_data.email})
         if existing_user:

@@ -1,5 +1,6 @@
 import logging
 
+from fastapi import HTTPException
 from starlette.middleware.cors import CORSMiddleware
 
 import core
@@ -36,3 +37,40 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+
+async def _health_payload():
+    try:
+        await core.ping_database()
+        db_status = "ok"
+        db_error = None
+    except Exception as exc:
+        db_status = "error"
+        db_error = str(exc)
+
+    payload = {
+        "status": "ok" if db_status == "ok" else "degraded",
+        "database": db_status,
+        "payments_mode": PAYMENTS_MODE,
+    }
+
+    if db_error:
+        payload["database_error"] = db_error
+
+    return payload
+
+
+@app.get("/health")
+async def health_check():
+    payload = await _health_payload()
+    if payload["status"] != "ok":
+        raise HTTPException(status_code=503, detail=payload)
+    return payload
+
+
+@app.get("/api/health")
+async def api_health_check():
+    payload = await _health_payload()
+    if payload["status"] != "ok":
+        raise HTTPException(status_code=503, detail=payload)
+    return payload

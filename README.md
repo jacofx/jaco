@@ -5,6 +5,29 @@ SolveConnect is a two-part app:
 - `backend/`: FastAPI + MongoDB API
 - `frontend/`: Expo React Native client
 
+## Quick start
+
+Run the repo health check first:
+
+```bash
+make doctor
+```
+
+Start MongoDB with the bundled container:
+
+```bash
+make mongo-up
+```
+
+That check verifies:
+
+- the frontend Node version
+- backend Python dependencies
+- frontend dependencies
+- MongoDB availability on `localhost:27017`
+- backend availability on `localhost:8000`
+- frontend dev server availability
+
 ## Repo setup
 
 ### 1. Backend
@@ -19,6 +42,14 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 cp .env.example .env
 uvicorn server:app --reload
+```
+
+The backend now fails fast at startup if MongoDB is unavailable, instead of starting and failing later during requests.
+
+If you do not want a local MongoDB install, start the bundled database container from the repo root:
+
+```bash
+make mongo-up
 ```
 
 Backend test command:
@@ -39,11 +70,7 @@ Create the frontend env file from [`frontend/.env.example`](/Users/banksjaco/SOL
 cp frontend/.env.example frontend/.env
 ```
 
-Example:
-
-```env
-EXPO_PUBLIC_BACKEND_URL=http://localhost:8000
-```
+For local development, leave `EXPO_PUBLIC_BACKEND_URL` empty so the frontend can infer the correct host across web, emulators, and Expo Go. Set it only when your API lives on another machine or domain.
 
 Install and run the frontend:
 
@@ -51,6 +78,20 @@ Install and run the frontend:
 cd frontend
 npm install
 npm run start
+```
+
+Or use the convenience targets from the repo root:
+
+```bash
+make backend
+```
+
+```bash
+make frontend
+```
+
+```bash
+make mongo-up
 ```
 
 Frontend verification command:
