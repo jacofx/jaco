@@ -39,7 +39,8 @@ export const userAPI = {
 
 export const adsAPI = {
   getPackages: () => api.get('/ads/packages'),
-  checkout: (packageId: string) => api.post('/ads/checkout', { package_id: packageId }),
+  checkout: (packageId: string, redirectUri?: string) =>
+    api.post('/ads/checkout', { package_id: packageId, redirect_uri: redirectUri }),
   verify: (paymentId: string, sessionId: string) =>
     api.post('/ads/verify', { payment_id: paymentId, session_id: sessionId }),
   getPurchases: () => api.get('/ads/purchases'),
@@ -50,16 +51,6 @@ export const notificationAPI = {
   updateNotification: (notificationId: string, read = true) =>
     api.put(`/notifications/${notificationId}`, { read }),
 };
-
-const PROMOTION_FIELD_KEYS = [
-  'ad_package',
-  'promotion',
-  'promotion_days',
-  'priority_level',
-  'is_featured',
-  'is_urgent',
-  'payment_id',
-] as const;
 
 const PROMOTION_CONFIG = {
   free: {
@@ -90,16 +81,6 @@ const PROMOTION_CONFIG = {
     urgent: true,
   },
 } as const;
-
-function stripPromotionFields(data: any) {
-  const nextPayload = { ...data };
-
-  for (const key of PROMOTION_FIELD_KEYS) {
-    delete nextPayload[key];
-  }
-
-  return nextPayload;
-}
 
 export function getJobPromotion(job: any) {
   if (job?.promotion_expires_at) {
@@ -142,24 +123,7 @@ export function getJobPromotion(job: any) {
 
 // Job APIs
 export const jobAPI = {
-  createJob: async (data: any) => {
-    try {
-      return await api.post('/jobs', data);
-    } catch (error: any) {
-      const hasPromotionFields = PROMOTION_FIELD_KEYS.some((key) => key in (data || {}));
-
-      if (
-        hasPromotionFields &&
-        axios.isAxiosError(error) &&
-        error.response &&
-        [400, 422].includes(error.response.status)
-      ) {
-        return api.post('/jobs', stripPromotionFields(data));
-      }
-
-      throw error;
-    }
-  },
+  createJob: (data: any) => api.post('/jobs', data),
   getJobs: (params?: any) => api.get('/jobs', { params }),
   getJob: (jobId: string) => api.get(`/jobs/${jobId}`),
   getMyPostedJobs: () => api.get('/jobs/my/posted'),

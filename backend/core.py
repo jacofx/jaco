@@ -2,7 +2,10 @@ import math
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
+from enum import Enum
+import logging
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 from typing import List, Optional
 
 from bson import ObjectId
@@ -12,15 +15,16 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from motor.motor_asyncio import AsyncIOMotorClient
 from passlib.context import CryptContext
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 import socketio
 import stripe
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
+logger = logging.getLogger(__name__)
 
 mongo_url = os.environ["MONGO_URL"]
-client = AsyncIOMotorClient(mongo_url)
+client = AsyncIOMotorClient(mongo_url, serverSelectionTimeoutMS=3000)
 db = client[os.environ["DB_NAME"]]
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
 
@@ -32,8 +36,21 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer()
 
 
+async def ping_database():
+    await client.admin.command("ping")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    try:
+        await ping_database()
+        logger.info("MongoDB connection established")
+    except Exception as exc:
+        logger.warning(
+            "MongoDB connection failed during startup; continuing in degraded mode: %s",
+            exc,
+        )
+
     yield
     client.close()
 
@@ -49,12 +66,12 @@ socket_app = socketio.ASGIApp(sio, app)
 api_router = APIRouter(prefix="/api")
 
 
-class UserRole(str):
+class UserRole(str, Enum):
     NEED_HELP = "need_help"
     HELPER = "helper"
 
 
-class JobStatus(str):
+class JobStatus(str, Enum):
     POSTED = "posted"
     ACCEPTED = "accepted"
     IN_PROGRESS = "in_progress"
@@ -79,6 +96,7 @@ class JobPromotion(BaseModel):
 
 class AdCheckoutCreate(BaseModel):
     package_id: str
+    redirect_uri: Optional[str] = None
 
 
 class JobPaymentLink(BaseModel):
@@ -99,7 +117,7 @@ class UserRegister(BaseModel):
     phone: Optional[str] = None
     password: str
     name: str
-    role: str
+    role: UserRole
     skills: Optional[List[str]] = []
 
 
@@ -133,7 +151,7 @@ class JobCreate(BaseModel):
 
 
 class JobUpdate(BaseModel):
-    status: Optional[str] = None
+    status: Optional[JobStatus] = None
     helper_id: Optional[str] = None
 
 
@@ -146,7 +164,7 @@ class MessageCreate(BaseModel):
 class ReviewCreate(BaseModel):
     job_id: str
     helper_id: str
-    rating: int
+    rating: int = Field(ge=1, le=5)
     comment: str
 
 
@@ -167,6 +185,10 @@ def create_access_token(data: dict):
 
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
     token = credentials.credentials
+    return await get_user_from_token(token)
+
+
+async def get_user_from_token(token: str):
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         user_id: str = payload.get("sub")
@@ -182,6 +204,38 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     user["_id"] = str(user["_id"])
     user.pop("password_hash", None)
     return user
+
+
+def extract_bearer_token(value: Optional[str]) -> Optional[str]:
+    if not value:
+        return None
+    parts = value.split(" ", 1)
+    if len(parts) == 2 and parts[0].lower() == "bearer":
+        return parts[1]
+    return value
+
+
+def get_socket_token(environ: Optional[dict], auth: Optional[dict] = None) -> Optional[str]:
+    if auth:
+        token = auth.get("token") or auth.get("access_token") or extract_bearer_token(auth.get("Authorization"))
+        if token:
+            return token
+
+    environ = environ or {}
+    authorization = environ.get("HTTP_AUTHORIZATION")
+    if authorization:
+        token = extract_bearer_token(authorization)
+        if token:
+            return token
+
+    query_string = environ.get("QUERY_STRING")
+    if query_string:
+        params = parse_qs(query_string)
+        token = params.get("token", [None])[0] or params.get("access_token", [None])[0]
+        if token:
+            return token
+
+    return None
 
 
 def calculate_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -302,3 +356,24 @@ def serialize_notification(notification: dict) -> dict:
 
 def get_checkout_redirect_base() -> str:
     return os.environ.get("PAYMENT_REDIRECT_URI", "frontend://ads-payment")
+
+
+def get_allowed_redirect_hosts() -> set:
+    raw_hosts = os.environ.get("ALLOWED_PAYMENT_REDIRECT_HOSTS", "localhost,127.0.0.1")
+    return {host.strip().lower() for host in raw_hosts.split(",") if host.strip()}
+
+
+def validate_checkout_redirect_base(redirect_uri: Optional[str] = None) -> str:
+    candidate = (redirect_uri or get_checkout_redirect_base()).strip()
+    parsed = urlparse(candidate)
+
+    if not parsed.scheme:
+        raise HTTPException(status_code=400, detail="Invalid checkout redirect URI")
+
+    if parsed.scheme == "frontend":
+        return candidate.rstrip("/")
+
+    if parsed.scheme in {"http", "https"} and parsed.hostname and parsed.hostname.lower() in get_allowed_redirect_hosts():
+        return candidate.rstrip("/")
+
+    raise HTTPException(status_code=400, detail="Unsupported checkout redirect URI")

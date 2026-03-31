@@ -68,6 +68,29 @@ def test_job_accept_status_and_review_lifecycle(client):
     assert helper_record["completed_jobs_count"] == 1
 
 
+def test_jobs_calculate_distance_for_zero_coordinates(client):
+    test_client, _, _, _ = client
+
+    create_response = test_client.post(
+        "/api/jobs",
+        json={
+            "title": "Port repair",
+            "description": "Need work near origin",
+            "budget": 80,
+            "category": "electrician",
+            "location": {"lat": 0.5, "lng": 0.5, "address": "Near Gulf"},
+        },
+    )
+    assert create_response.status_code == 200
+
+    jobs_response = test_client.get("/api/jobs?lat=0&lng=0")
+
+    assert jobs_response.status_code == 200
+    jobs = jobs_response.json()
+    assert len(jobs) == 1
+    assert jobs[0]["distance"] is not None
+
+
 def test_non_helper_cannot_accept_job(client):
     test_client, _, _, _ = client
 
@@ -175,6 +198,47 @@ def test_review_requires_completed_job(client):
     assert review_response.json()["detail"] == "Job must be completed to leave a review"
 
 
+def test_review_rejects_out_of_range_rating(client):
+    test_client, fake_db, active_user, _ = client
+
+    create_response = test_client.post(
+        "/api/jobs",
+        json={
+            "title": "Fix switch",
+            "description": "Switch is sparking",
+            "budget": 70,
+            "category": "electrician",
+            "location": {"lat": 6.45, "lng": 3.39, "address": "Lagos"},
+        },
+    )
+    assert create_response.status_code == 200
+    job_id = create_response.json()["_id"]
+
+    active_user.update({"_id": str(fake_db.helper_id), "role": "helper", "name": "Helper"})
+    accept_response = test_client.put(f"/api/jobs/{job_id}/accept")
+    assert accept_response.status_code == 200
+
+    status_response = test_client.put(
+        f"/api/jobs/{job_id}/status",
+        json={"status": "completed"},
+    )
+    assert status_response.status_code == 200
+
+    active_user.update({"_id": str(fake_db.buyer_id), "role": "need_help", "name": "Buyer"})
+
+    review_response = test_client.post(
+        "/api/reviews",
+        json={
+            "job_id": job_id,
+            "helper_id": str(fake_db.helper_id),
+            "rating": 6,
+            "comment": "Too high",
+        },
+    )
+
+    assert review_response.status_code == 422
+
+
 def test_duplicate_review_is_rejected(client):
     test_client, fake_db, active_user, _ = client
 
@@ -226,3 +290,103 @@ def test_duplicate_review_is_rejected(client):
 
     assert second_review.status_code == 400
     assert second_review.json()["detail"] == "Review already exists for this job"
+
+
+def test_review_rejects_helper_mismatch(client):
+    test_client, fake_db, active_user, _ = client
+
+    create_response = test_client.post(
+        "/api/jobs",
+        json={
+            "title": "Repair outlet",
+            "description": "Socket is loose",
+            "budget": 95,
+            "category": "electrician",
+            "location": {"lat": 6.45, "lng": 3.39, "address": "Lagos"},
+        },
+    )
+    assert create_response.status_code == 200
+    job_id = create_response.json()["_id"]
+
+    active_user.update({"_id": str(fake_db.helper_id), "role": "helper", "name": "Helper"})
+    accept_response = test_client.put(f"/api/jobs/{job_id}/accept")
+    assert accept_response.status_code == 200
+
+    status_response = test_client.put(
+        f"/api/jobs/{job_id}/status",
+        json={"status": "completed"},
+    )
+    assert status_response.status_code == 200
+
+    active_user.update({"_id": str(fake_db.buyer_id), "role": "need_help", "name": "Buyer"})
+    other_helper_id = str(ObjectId())
+
+    review_response = test_client.post(
+        "/api/reviews",
+        json={
+            "job_id": job_id,
+            "helper_id": other_helper_id,
+            "rating": 5,
+            "comment": "Trying to rate the wrong helper",
+        },
+    )
+
+    assert review_response.status_code == 400
+    assert review_response.json()["detail"] == "Review helper must match the job helper"
+
+
+def test_job_status_rejects_invalid_transition(client):
+    test_client, fake_db, active_user, _ = client
+
+    create_response = test_client.post(
+        "/api/jobs",
+        json={
+            "title": "Fix fan",
+            "description": "Ceiling fan wobbles",
+            "budget": 90,
+            "category": "electrician",
+            "location": {"lat": 6.45, "lng": 3.39, "address": "Lagos"},
+        },
+    )
+    assert create_response.status_code == 200
+    job_id = create_response.json()["_id"]
+
+    active_user.update({"_id": str(fake_db.helper_id), "role": "helper", "name": "Helper"})
+    accept_response = test_client.put(f"/api/jobs/{job_id}/accept")
+    assert accept_response.status_code == 200
+
+    status_response = test_client.put(
+        f"/api/jobs/{job_id}/status",
+        json={"status": "posted"},
+    )
+
+    assert status_response.status_code == 400
+    assert status_response.json()["detail"] == "Invalid status transition"
+
+
+def test_job_status_rejects_unknown_status(client):
+    test_client, fake_db, active_user, _ = client
+
+    create_response = test_client.post(
+        "/api/jobs",
+        json={
+            "title": "Repair doorbell",
+            "description": "Doorbell not ringing",
+            "budget": 45,
+            "category": "electrician",
+            "location": {"lat": 6.45, "lng": 3.39, "address": "Lagos"},
+        },
+    )
+    assert create_response.status_code == 200
+    job_id = create_response.json()["_id"]
+
+    active_user.update({"_id": str(fake_db.helper_id), "role": "helper", "name": "Helper"})
+    accept_response = test_client.put(f"/api/jobs/{job_id}/accept")
+    assert accept_response.status_code == 200
+
+    status_response = test_client.put(
+        f"/api/jobs/{job_id}/status",
+        json={"status": "archived"},
+    )
+
+    assert status_response.status_code == 422

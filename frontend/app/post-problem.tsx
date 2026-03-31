@@ -115,7 +115,8 @@ export default function PostProblemScreen() {
       let paymentId: string | undefined;
 
       if (selectedPackage !== 'free') {
-        const checkoutResponse = await adsAPI.checkout(selectedPackage);
+        const redirectUri = Linking.createURL('ads-payment');
+        const checkoutResponse = await adsAPI.checkout(selectedPackage, redirectUri);
         paymentId = checkoutResponse.data?.payment?._id;
         const checkoutUrl = checkoutResponse.data?.checkout_url;
         const requiresRedirect = checkoutResponse.data?.requires_redirect;
@@ -129,7 +130,6 @@ export default function PostProblemScreen() {
             throw new Error('Checkout URL is missing');
           }
 
-          const redirectUri = Linking.createURL('ads-payment');
           const paymentResult = await WebBrowser.openAuthSessionAsync(checkoutUrl, redirectUri);
 
           if (paymentResult.type !== 'success' || !paymentResult.url) {

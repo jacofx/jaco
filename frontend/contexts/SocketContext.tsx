@@ -22,16 +22,19 @@ export const useSocket = () => useContext(SocketContext);
 export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [isConnected, setIsConnected] = useState(false);
   const socketRef = useRef<Socket | null>(null);
-  const { user, isAuthenticated } = useAuthStore();
+  const { user, token, isAuthenticated } = useAuthStore();
 
   useEffect(() => {
-    if (!isAuthenticated || !user) return;
+    if (!isAuthenticated || !user || !token) return;
 
     socketRef.current = io(SOCKET_URL, {
       transports: ['websocket', 'polling'],
       reconnection: true,
       reconnectionAttempts: 5,
       timeout: 20000,
+      auth: {
+        access_token: token,
+      },
     });
 
     socketRef.current.on('connect', () => {
@@ -54,8 +57,9 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     return () => {
       socketRef.current?.disconnect();
+      socketRef.current = null;
     };
-  }, [isAuthenticated, user]);
+  }, [isAuthenticated, token, user]);
 
   const joinRoom = (room: string) => {
     socketRef.current?.emit('join_room', { room });

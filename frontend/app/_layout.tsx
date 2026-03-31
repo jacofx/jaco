@@ -34,6 +34,9 @@ export default function RootLayout() {
         ) : (
           <>
             <Stack.Screen name="(tabs)" />
+            <Stack.Screen name="edit-profile" options={{ title: 'Edit Profile' }} />
+            <Stack.Screen name="location-settings" options={{ title: 'Location Settings' }} />
+            <Stack.Screen name="help-support" options={{ title: 'Help & Support' }} />
             <Stack.Screen name="post-problem" options={{ presentation: 'modal', title: 'Post a Problem' }} />
             <Stack.Screen name="payments" options={{ title: 'Ad Payments' }} />
             <Stack.Screen name="job/[id]" options={{ title: 'Job Details' }} />

@@ -104,3 +104,35 @@ def test_login_requires_email_or_phone(auth_client):
 
     assert login_response.status_code == 400
     assert login_response.json()["detail"] == "Email or phone required"
+
+
+def test_register_requires_email_or_phone(auth_client):
+    test_client, _ = auth_client
+
+    register_response = test_client.post(
+        "/api/auth/register",
+        json={
+            "password": "super-secret",
+            "name": "No Contact",
+            "role": "need_help",
+        },
+    )
+
+    assert register_response.status_code == 400
+    assert register_response.json()["detail"] == "Email or phone required"
+
+
+def test_register_rejects_invalid_role(auth_client):
+    test_client, _ = auth_client
+
+    register_response = test_client.post(
+        "/api/auth/register",
+        json={
+            "email": "bad-role@example.com",
+            "password": "super-secret",
+            "name": "Bad Role",
+            "role": "admin",
+        },
+    )
+
+    assert register_response.status_code == 422

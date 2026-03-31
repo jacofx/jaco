@@ -24,6 +24,23 @@ async def get_job_messages(job_id: str, current_user_id: str):
 
 
 async def send_message(current_user_id: str, job_id: str, receiver_id: str, message: str):
+    try:
+        job = await core.db.jobs.find_one({"_id": ObjectId(job_id)})
+    except Exception as exc:
+        raise core.HTTPException(status_code=400, detail=str(exc))
+
+    if not job:
+        raise core.HTTPException(status_code=404, detail="Job not found")
+
+    participants = {str(job["user_id"])}
+    if job.get("helper_id"):
+        participants.add(str(job["helper_id"]))
+
+    if current_user_id not in participants:
+        raise core.HTTPException(status_code=403, detail="Not authorized")
+    if receiver_id not in participants or receiver_id == current_user_id:
+        raise core.HTTPException(status_code=400, detail="Receiver must be the other job participant")
+
     message_dict = {
         "job_id": job_id,
         "sender_id": current_user_id,

@@ -13,6 +13,8 @@ async def create_review(current_user_id: str, review_data: core.ReviewCreate):
         raise core.HTTPException(status_code=400, detail="Job must be completed to leave a review")
     if str(job["user_id"]) != current_user_id:
         raise core.HTTPException(status_code=403, detail="Only job poster can leave a review")
+    if not job.get("helper_id") or str(job["helper_id"]) != review_data.helper_id:
+        raise core.HTTPException(status_code=400, detail="Review helper must match the job helper")
 
     existing_review = await core.db.reviews.find_one({"job_id": review_data.job_id})
     if existing_review:

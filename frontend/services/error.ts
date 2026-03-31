@@ -1,3 +1,5 @@
+import { BACKEND_URL } from './config';
+
 export function getApiErrorMessage(error: any, fallback: string) {
   const detail = error?.response?.data?.detail;
 
@@ -18,6 +20,10 @@ export function getApiErrorMessage(error: any, fallback: string) {
 
   if (typeof error?.message === 'string' && error.message.trim()) {
     return error.message;
+  }
+
+  if (!error?.response) {
+    return `Unable to reach backend at ${BACKEND_URL}. Set EXPO_PUBLIC_BACKEND_URL if your API is running elsewhere.`;
   }
 
   return fallback;

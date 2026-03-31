@@ -82,3 +82,67 @@ def test_cannot_read_messages_for_unrelated_job(client):
     messages_response = test_client.get(f"/api/messages/jobs/{job_id}")
     assert messages_response.status_code == 403
     assert messages_response.json()["detail"] == "Not authorized"
+
+
+def test_cannot_send_message_for_unrelated_job(client):
+    test_client, _, active_user, _ = client
+
+    create_response = test_client.post(
+        "/api/jobs",
+        json={
+            "title": "Repair gate",
+            "description": "Metal gate stuck",
+            "budget": 100,
+            "category": "welder",
+            "location": {"lat": 6.45, "lng": 3.39, "address": "Lagos"},
+        },
+    )
+    assert create_response.status_code == 200
+    job_id = create_response.json()["_id"]
+
+    active_user.update({"_id": "69c000000000000000000001", "role": "helper", "name": "Intruder"})
+
+    message_response = test_client.post(
+        "/api/messages",
+        json={
+            "job_id": job_id,
+            "receiver_id": "69c000000000000000000002",
+            "message": "I should not be able to send this.",
+        },
+    )
+
+    assert message_response.status_code == 403
+    assert message_response.json()["detail"] == "Not authorized"
+
+
+def test_message_receiver_must_be_other_job_participant(client):
+    test_client, fake_db, active_user, _ = client
+
+    create_response = test_client.post(
+        "/api/jobs",
+        json={
+            "title": "Fix outlet",
+            "description": "Outlet is dead",
+            "budget": 85,
+            "category": "electrician",
+            "location": {"lat": 6.45, "lng": 3.39, "address": "Lagos"},
+        },
+    )
+    assert create_response.status_code == 200
+    job_id = create_response.json()["_id"]
+
+    active_user.update({"_id": str(fake_db.helper_id), "role": "helper", "name": "Helper"})
+    accept_response = test_client.put(f"/api/jobs/{job_id}/accept")
+    assert accept_response.status_code == 200
+
+    message_response = test_client.post(
+        "/api/messages",
+        json={
+            "job_id": job_id,
+            "receiver_id": str(fake_db.helper_id),
+            "message": "Talking to myself.",
+        },
+    )
+
+    assert message_response.status_code == 400
+    assert message_response.json()["detail"] == "Receiver must be the other job participant"
