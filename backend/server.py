@@ -1,6 +1,7 @@
 import logging
 
 from fastapi import HTTPException
+from fastapi.responses import RedirectResponse
 from starlette.middleware.cors import CORSMiddleware
 
 import core
@@ -37,6 +38,11 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+
+@app.get("/", include_in_schema=False)
+async def root():
+    return RedirectResponse(url="/docs", status_code=307)
 
 
 async def _health_payload():

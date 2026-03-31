@@ -1,6 +1,15 @@
 import server
 
 
+def test_root_redirects_to_docs(auth_client):
+    test_client, _ = auth_client
+
+    response = test_client.get("/", follow_redirects=False)
+
+    assert response.status_code == 307
+    assert response.headers["location"] == "/docs"
+
+
 def test_health_reports_degraded_when_database_is_unavailable(auth_client, monkeypatch):
     test_client, _ = auth_client
 
