@@ -45,6 +45,7 @@ SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD")
 SMTP_FROM_EMAIL = os.environ.get("SMTP_FROM_EMAIL")
 SMTP_USE_TLS = os.environ.get("SMTP_USE_TLS", "true").lower() not in {"false", "0", "no"}
 SMTP_USE_SSL = os.environ.get("SMTP_USE_SSL", "false").lower() in {"true", "1", "yes"}
+SMTP_TIMEOUT_SECONDS = float(os.environ.get("SMTP_TIMEOUT_SECONDS", "10"))
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer()
@@ -263,13 +264,13 @@ def _send_email_message(message: EmailMessage):
 
     if SMTP_USE_SSL:
         context = ssl.create_default_context()
-        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, context=context) as smtp:
+        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, context=context, timeout=SMTP_TIMEOUT_SECONDS) as smtp:
             if SMTP_USERNAME:
                 smtp.login(SMTP_USERNAME, SMTP_PASSWORD or "")
             smtp.send_message(message)
         return
 
-    with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as smtp:
+    with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=SMTP_TIMEOUT_SECONDS) as smtp:
         if SMTP_USE_TLS:
             context = ssl.create_default_context()
             smtp.starttls(context=context)
