@@ -18,6 +18,7 @@ from bson import ObjectId
 from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, FastAPI, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+import httpx
 from jose import JWTError, jwt
 from motor.motor_asyncio import AsyncIOMotorClient
 from passlib.context import CryptContext
@@ -46,6 +47,8 @@ SMTP_FROM_EMAIL = os.environ.get("SMTP_FROM_EMAIL")
 SMTP_USE_TLS = os.environ.get("SMTP_USE_TLS", "true").lower() not in {"false", "0", "no"}
 SMTP_USE_SSL = os.environ.get("SMTP_USE_SSL", "false").lower() in {"true", "1", "yes"}
 SMTP_TIMEOUT_SECONDS = float(os.environ.get("SMTP_TIMEOUT_SECONDS", "10"))
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY")
+RESEND_API_URL = os.environ.get("RESEND_API_URL", "https://api.resend.com/emails")
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer()
@@ -280,6 +283,10 @@ def _send_email_message(message: EmailMessage):
 
 
 async def send_signup_verification_email(email: str, code: str):
+    if RESEND_API_KEY:
+        await send_signup_verification_email_with_resend(email, code)
+        return
+
     message = EmailMessage()
     message["Subject"] = "Your SolveConnect verification code"
     message["From"] = SMTP_FROM_EMAIL or "no-reply@solveconnect.net"
@@ -292,6 +299,33 @@ async def send_signup_verification_email(email: str, code: str):
     )
 
     await asyncio.to_thread(_send_email_message, message)
+
+
+async def send_signup_verification_email_with_resend(email: str, code: str):
+    if not SMTP_FROM_EMAIL:
+        raise RuntimeError("SMTP_FROM_EMAIL is required when using Resend")
+
+    payload = {
+        "from": SMTP_FROM_EMAIL,
+        "to": [email],
+        "subject": "Your SolveConnect verification code",
+        "text": (
+            "Your SolveConnect verification code is "
+            f"{code}. It expires in {EMAIL_VERIFICATION_CODE_TTL_MINUTES} minutes."
+        ),
+    }
+
+    timeout = httpx.Timeout(SMTP_TIMEOUT_SECONDS)
+    headers = {
+        "Authorization": f"Bearer {RESEND_API_KEY}",
+        "Content-Type": "application/json",
+    }
+
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        response = await client.post(RESEND_API_URL, headers=headers, json=payload)
+
+    if response.status_code >= 400:
+        raise RuntimeError(f"Resend API error {response.status_code}: {response.text}")
 
 
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
