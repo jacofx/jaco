@@ -5,13 +5,40 @@ from fastapi import Depends, HTTPException
 import core
 
 
+@core.api_router.post("/auth/send-email-code")
+async def send_email_code(request: core.EmailVerificationRequest):
+    normalized_email = str(request.email).strip().lower()
+
+    existing_user = await core.db.users.find_one({"email": normalized_email})
+    if existing_user:
+        raise HTTPException(status_code=400, detail="Email already registered")
+
+    code = core.generate_email_verification_code()
+    await core.store_signup_verification_code(normalized_email, code)
+
+    try:
+        await core.send_signup_verification_email(normalized_email, code)
+    except Exception as exc:
+        await core.get_email_verification_codes_collection().delete_one(
+            {"email": normalized_email, "purpose": "signup", "used": False}
+        )
+        raise HTTPException(status_code=500, detail=f"Failed to send verification email: {exc}")
+
+    return {
+        "message": "Verification code sent",
+        "expires_in_seconds": core.EMAIL_VERIFICATION_CODE_TTL_MINUTES * 60,
+    }
+
+
 @core.api_router.post("/auth/register")
 async def register(user_data: core.UserRegister):
     if not user_data.email and not user_data.phone:
         raise HTTPException(status_code=400, detail="Email or phone required")
 
-    if user_data.email:
-        existing_user = await core.db.users.find_one({"email": user_data.email})
+    normalized_email = str(user_data.email).strip().lower() if user_data.email else None
+
+    if normalized_email:
+        existing_user = await core.db.users.find_one({"email": normalized_email})
         if existing_user:
             raise HTTPException(status_code=400, detail="Email already registered")
 
@@ -20,8 +47,13 @@ async def register(user_data: core.UserRegister):
         if existing_user:
             raise HTTPException(status_code=400, detail="Phone already registered")
 
+    if normalized_email:
+        if not user_data.email_verification_code:
+            raise HTTPException(status_code=400, detail="Email verification code required")
+        await core.consume_signup_verification_code(normalized_email, user_data.email_verification_code)
+
     user_dict = {
-        "email": user_data.email,
+        "email": normalized_email,
         "phone": user_data.phone,
         "password_hash": core.hash_password(user_data.password),
         "name": user_data.name,
@@ -53,7 +85,7 @@ async def register(user_data: core.UserRegister):
 async def login(credentials: core.UserLogin):
     query = {}
     if credentials.email:
-        query["email"] = credentials.email
+        query["email"] = credentials.email.strip().lower()
     elif credentials.phone:
         query["phone"] = credentials.phone
     else:

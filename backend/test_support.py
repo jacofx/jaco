@@ -126,3 +126,4 @@ class FakeDB:
         self.notifications = FakeCollection()
         self.messages = FakeCollection()
         self.reviews = FakeCollection()
+        self.email_verification_codes = FakeCollection()

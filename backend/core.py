@@ -1,10 +1,16 @@
+import asyncio
+import hashlib
 import math
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
+from email.message import EmailMessage
 from enum import Enum
 import logging
 from pathlib import Path
+import random
+import smtplib
+import ssl
 from urllib.parse import parse_qs, urlparse
 from typing import List, Optional
 
@@ -31,6 +37,14 @@ stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
 SECRET_KEY = os.environ.get("SECRET_KEY", "your-secret-key-change-in-production")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7
+EMAIL_VERIFICATION_CODE_TTL_MINUTES = int(os.environ.get("EMAIL_VERIFICATION_CODE_TTL_MINUTES", "10"))
+SMTP_HOST = os.environ.get("SMTP_HOST")
+SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
+SMTP_USERNAME = os.environ.get("SMTP_USERNAME")
+SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD")
+SMTP_FROM_EMAIL = os.environ.get("SMTP_FROM_EMAIL")
+SMTP_USE_TLS = os.environ.get("SMTP_USE_TLS", "true").lower() not in {"false", "0", "no"}
+SMTP_USE_SSL = os.environ.get("SMTP_USE_SSL", "false").lower() in {"true", "1", "yes"}
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer()
@@ -119,6 +133,11 @@ class UserRegister(BaseModel):
     name: str
     role: UserRole
     skills: Optional[List[str]] = []
+    email_verification_code: Optional[str] = None
+
+
+class EmailVerificationRequest(BaseModel):
+    email: EmailStr
 
 
 class UserLogin(BaseModel):
@@ -181,6 +200,97 @@ def create_access_token(data: dict):
     expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+
+def generate_email_verification_code() -> str:
+    return f"{random.randint(0, 999999):06d}"
+
+
+def hash_email_verification_code(email: str, code: str) -> str:
+    normalized_email = email.strip().lower()
+    normalized_code = code.strip()
+    return hashlib.sha256(f"{normalized_email}:{normalized_code}:{SECRET_KEY}".encode("utf-8")).hexdigest()
+
+
+def get_email_verification_codes_collection():
+    return db.email_verification_codes
+
+
+async def store_signup_verification_code(email: str, code: str):
+    normalized_email = email.strip().lower()
+    collection = get_email_verification_codes_collection()
+    expires_at = datetime.utcnow() + timedelta(minutes=EMAIL_VERIFICATION_CODE_TTL_MINUTES)
+
+    await collection.delete_one({"email": normalized_email, "purpose": "signup", "used": False})
+    await collection.insert_one(
+        {
+            "email": normalized_email,
+            "purpose": "signup",
+            "code_hash": hash_email_verification_code(normalized_email, code),
+            "used": False,
+            "created_at": datetime.utcnow(),
+            "expires_at": expires_at,
+        }
+    )
+
+
+async def consume_signup_verification_code(email: str, code: str):
+    normalized_email = email.strip().lower()
+    collection = get_email_verification_codes_collection()
+    record = await collection.find_one(
+        {"email": normalized_email, "purpose": "signup", "used": False},
+        sort=[("created_at", -1)],
+    )
+
+    if not record:
+        raise HTTPException(status_code=400, detail="Email verification code not requested")
+
+    if record["expires_at"] < datetime.utcnow():
+        raise HTTPException(status_code=400, detail="Email verification code expired")
+
+    if record["code_hash"] != hash_email_verification_code(normalized_email, code):
+        raise HTTPException(status_code=400, detail="Invalid email verification code")
+
+    await collection.update_one(
+        {"_id": record["_id"]},
+        {"$set": {"used": True, "used_at": datetime.utcnow()}},
+    )
+
+
+def _send_email_message(message: EmailMessage):
+    if not SMTP_HOST or not SMTP_FROM_EMAIL:
+        raise RuntimeError("SMTP is not configured")
+
+    if SMTP_USE_SSL:
+        context = ssl.create_default_context()
+        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, context=context) as smtp:
+            if SMTP_USERNAME:
+                smtp.login(SMTP_USERNAME, SMTP_PASSWORD or "")
+            smtp.send_message(message)
+        return
+
+    with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as smtp:
+        if SMTP_USE_TLS:
+            context = ssl.create_default_context()
+            smtp.starttls(context=context)
+        if SMTP_USERNAME:
+            smtp.login(SMTP_USERNAME, SMTP_PASSWORD or "")
+        smtp.send_message(message)
+
+
+async def send_signup_verification_email(email: str, code: str):
+    message = EmailMessage()
+    message["Subject"] = "Your SolveConnect verification code"
+    message["From"] = SMTP_FROM_EMAIL or "no-reply@solveconnect.net"
+    message["To"] = email
+    message.set_content(
+        (
+            "Your SolveConnect verification code is "
+            f"{code}. It expires in {EMAIL_VERIFICATION_CODE_TTL_MINUTES} minutes."
+        )
+    )
+
+    await asyncio.to_thread(_send_email_message, message)
 
 
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):

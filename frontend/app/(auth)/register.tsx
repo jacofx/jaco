@@ -25,9 +25,32 @@ export default function RegisterScreen() {
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
+  const [emailVerificationCode, setEmailVerificationCode] = useState('');
   const [role, setRole] = useState<'need_help' | 'helper'>('need_help');
   const [skills, setSkills] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isSendingCode, setIsSendingCode] = useState(false);
+  const [hasSentCode, setHasSentCode] = useState(false);
+
+  const handleSendCode = async () => {
+    const trimmedEmail = email.trim().toLowerCase();
+
+    if (!trimmedEmail) {
+      Alert.alert('Email Required', 'Enter your email before requesting a verification code.');
+      return;
+    }
+
+    setIsSendingCode(true);
+    try {
+      await authAPI.sendEmailCode(trimmedEmail);
+      setHasSentCode(true);
+      Alert.alert('Verification Code Sent', `A verification code has been sent to ${trimmedEmail}.`);
+    } catch (error: any) {
+      Alert.alert('Unable to Send Code', getApiErrorMessage(error, 'Please try again.'));
+    } finally {
+      setIsSendingCode(false);
+    }
+  };
 
   const handleRegister = async () => {
     const trimmedName = name.trim();
@@ -44,6 +67,11 @@ export default function RegisterScreen() {
       return;
     }
 
+    if (!emailVerificationCode.trim()) {
+      Alert.alert('Verification Required', 'Enter the email verification code before creating your account.');
+      return;
+    }
+
     setIsLoading(true);
     try {
       const response = await authAPI.register({
@@ -53,6 +81,7 @@ export default function RegisterScreen() {
         password: trimmedPassword,
         role,
         skills: skillsArray,
+        email_verification_code: emailVerificationCode.trim(),
       });
 
       const { access_token, user_id } = response.data;
@@ -109,6 +138,31 @@ export default function RegisterScreen() {
                 value={email}
                 onChangeText={setEmail}
                 keyboardType="email-address"
+                autoCapitalize="none"
+                autoCorrect={false}
+                placeholderTextColor="#999"
+              />
+
+              <TouchableOpacity
+                style={[styles.secondaryButton, isSendingCode && styles.secondaryButtonDisabled]}
+                onPress={handleSendCode}
+                disabled={isSendingCode}
+              >
+                {isSendingCode ? (
+                  <ActivityIndicator color="#111827" />
+                ) : (
+                  <Text style={styles.secondaryButtonText}>
+                    {hasSentCode ? 'Resend Verification Code' : 'Send Verification Code'}
+                  </Text>
+                )}
+              </TouchableOpacity>
+
+              <TextInput
+                style={styles.input}
+                placeholder="Email verification code"
+                value={emailVerificationCode}
+                onChangeText={setEmailVerificationCode}
+                keyboardType="number-pad"
                 autoCapitalize="none"
                 autoCorrect={false}
                 placeholderTextColor="#999"
@@ -303,6 +357,22 @@ const styles = StyleSheet.create({
     padding: 16,
     alignItems: 'center',
     marginTop: 8,
+  },
+  secondaryButton: {
+    borderWidth: 1,
+    borderColor: '#111827',
+    borderRadius: 12,
+    padding: 14,
+    alignItems: 'center',
+    backgroundColor: '#fff',
+  },
+  secondaryButtonDisabled: {
+    opacity: 0.7,
+  },
+  secondaryButtonText: {
+    color: '#111827',
+    fontSize: 15,
+    fontWeight: '600',
   },
   buttonText: {
     color: '#fff',

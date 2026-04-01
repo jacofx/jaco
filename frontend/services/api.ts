@@ -26,6 +26,7 @@ api.interceptors.request.use(
 
 // Auth APIs
 export const authAPI = {
+  sendEmailCode: (email: string) => api.post('/auth/send-email-code', { email }),
   register: (data: any) => api.post('/auth/register', data),
   login: (data: any) => api.post('/auth/login', data),
   getMe: () => api.get('/auth/me'),
