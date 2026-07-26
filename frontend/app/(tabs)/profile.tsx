@@ -1,62 +1,120 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  ScrollView,
+  ActivityIndicator,
   Alert,
   Image,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useRouter } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
-import { useAuthStore } from '../../store/authStore';
 import * as ImagePicker from 'expo-image-picker';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { adsAPI, userAPI } from '../../services/api';
+import { useAuthStore } from '../../store/authStore';
+
+type Purchase = {
+  _id: string;
+  amount?: number;
+  currency?: string;
+  package_name?: string;
+  status?: string;
+};
+
+type MenuRowProps = {
+  description: string;
+  icon: React.ComponentProps<typeof Ionicons>['name'];
+  label: string;
+  onPress: () => void;
+};
+
+const COLORS = {
+  primary: '#0B6B4F',
+  primaryDark: '#07543E',
+  primarySoft: '#E8F4EF',
+  accent: '#F28C28',
+  ink: '#10231C',
+  muted: '#5D6B64',
+  canvas: '#F5F8F6',
+  surface: '#FFFFFF',
+  border: '#D7E2DC',
+  danger: '#B42318',
+  dangerSoft: '#FEF3F2',
+  warning: '#925B16',
+  warningSoft: '#FFF7E8',
+};
 
 export default function ProfileScreen() {
   const router = useRouter();
   const { user, logout, setUser } = useAuthStore();
   const [uploading, setUploading] = useState(false);
-  const [purchases, setPurchases] = useState<any[]>([]);
+  const [loggingOut, setLoggingOut] = useState(false);
+  const [loadingPurchases, setLoadingPurchases] = useState(true);
+  const [purchasesError, setPurchasesError] = useState<string | null>(null);
+  const [purchases, setPurchases] = useState<Purchase[]>([]);
 
-  useEffect(() => {
-    const loadPurchases = async () => {
-      try {
-        const response = await adsAPI.getPurchases();
-        setPurchases(response.data || []);
-      } catch {
-        setPurchases([]);
-      }
-    };
+  const loadPurchases = useCallback(async () => {
+    setLoadingPurchases(true);
+    setPurchasesError(null);
 
-    loadPurchases();
+    try {
+      const response = await adsAPI.getPurchases();
+      setPurchases(Array.isArray(response.data) ? response.data : []);
+    } catch {
+      setPurchasesError('Payment history is unavailable right now.');
+    } finally {
+      setLoadingPurchases(false);
+    }
   }, []);
 
+  useEffect(() => {
+    void loadPurchases();
+  }, [loadPurchases]);
+
+  const performLogout = async () => {
+    if (loggingOut) return;
+
+    setLoggingOut(true);
+    try {
+      await logout();
+      router.replace('/(auth)/login');
+    } catch {
+      Alert.alert('Logout failed', 'Unable to log out. Please try again.');
+    } finally {
+      setLoggingOut(false);
+    }
+  };
+
   const handleLogout = () => {
-    Alert.alert(
-      'Logout',
-      'Are you sure you want to logout?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Logout',
-          style: 'destructive',
-          onPress: async () => {
-            await logout();
-            router.replace('/(auth)/login');
-          },
-        },
-      ]
-    );
+    if (Platform.OS === 'web') {
+      const confirmed = typeof window === 'undefined'
+        ? true
+        : window.confirm('Are you sure you want to log out?');
+
+      if (confirmed) {
+        void performLogout();
+      }
+      return;
+    }
+
+    Alert.alert('Log out', 'Are you sure you want to log out?', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Log out', style: 'destructive', onPress: performLogout },
+    ]);
   };
 
   const handleUploadPhoto = async () => {
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permission Denied', 'Camera roll permission is required');
+        Alert.alert(
+          'Photo access needed',
+          'Allow access to your photo library to choose a profile picture.'
+        );
         return;
       }
 
@@ -71,194 +129,361 @@ export default function ProfileScreen() {
       if (!result.canceled && result.assets[0].base64) {
         setUploading(true);
         const base64Image = `data:image/jpeg;base64,${result.assets[0].base64}`;
-        
         const response = await userAPI.updateUser({ profile_photo: base64Image });
         setUser(response.data);
-        Alert.alert('Success', 'Profile photo updated');
+        Alert.alert('Photo updated', 'Your new profile photo is now visible.');
       }
     } catch {
-      Alert.alert('Error', 'Failed to upload photo');
+      Alert.alert('Upload failed', 'Your profile photo could not be updated. Please try again.');
     } finally {
       setUploading(false);
     }
   };
 
+  const rating = typeof user?.rating === 'number' && user.rating > 0
+    ? user.rating.toFixed(1)
+    : 'No rating';
+  const showPromotionTools = user?.role !== 'helper' || purchases.length > 0;
+
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        <View style={styles.profileHeader}>
-          <TouchableOpacity onPress={handleUploadPhoto} disabled={uploading}>
-            <View style={styles.avatarContainer}>
-              {user?.profile_photo ? (
-                <Image source={{ uri: user.profile_photo }} style={styles.avatar} />
-              ) : (
-                <View style={styles.avatar}>
-                  <Ionicons name="person" size={48} color="#999" />
-                </View>
-              )}
-              <View style={styles.cameraButton}>
-                <Ionicons name="camera" size={16} color="#fff" />
-              </View>
-            </View>
-          </TouchableOpacity>
-          
-          <Text style={styles.userName}>{user?.name}</Text>
-          {user?.email && <Text style={styles.userEmail}>{user.email}</Text>}
-          {user?.phone && <Text style={styles.userPhone}>{user.phone}</Text>}
-          
-          <View style={styles.roleBadge}>
-            <Text style={styles.roleText}>
-              {user?.role === 'helper' ? 'Helper' : 'Need Help'}
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.contentShell}>
+          <View style={styles.pageHeader}>
+            <Text style={styles.eyebrow}>Your account</Text>
+            <Text accessibilityRole="header" style={styles.pageTitle}>Profile & settings</Text>
+            <Text style={styles.pageDescription}>
+              Keep your details current so people know who they are connecting with.
             </Text>
           </View>
-        </View>
 
-        {user?.role === 'helper' && (
-          <View style={styles.statsContainer}>
-            <View style={styles.statItem}>
-              <Ionicons name="star" size={24} color="#FFD700" />
-              <Text style={styles.statValue}>
-                {user.rating ? user.rating.toFixed(1) : '0.0'}
-              </Text>
-              <Text style={styles.statLabel}>Rating</Text>
-            </View>
-            
-            <View style={styles.statDivider} />
-            
-            <View style={styles.statItem}>
-              <Ionicons name="checkmark-circle" size={24} color="#4CAF50" />
-              <Text style={styles.statValue}>{user.completed_jobs_count || 0}</Text>
-              <Text style={styles.statLabel}>Jobs Completed</Text>
-            </View>
-          </View>
-        )}
-
-        {user?.role === 'helper' && user?.skills && user.skills.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Skills</Text>
-            <View style={styles.skillsContainer}>
-              {user.skills.map((skill, index) => (
-                <View key={index} style={styles.skillBadge}>
-                  <Text style={styles.skillText}>{skill}</Text>
+          <View style={styles.profileHeader}>
+            <TouchableOpacity
+              accessibilityHint="Opens your photo library"
+              accessibilityLabel="Change profile photo"
+              accessibilityRole="button"
+              accessibilityState={{ busy: uploading, disabled: uploading }}
+              activeOpacity={0.8}
+              disabled={uploading}
+              onPress={handleUploadPhoto}
+            >
+              <View style={styles.avatarContainer}>
+                {user?.profile_photo ? (
+                  <Image
+                    accessible={false}
+                    source={{ uri: user.profile_photo }}
+                    style={styles.avatar}
+                  />
+                ) : (
+                  <View style={styles.avatar}>
+                    <Ionicons name="person-outline" size={48} color={COLORS.muted} />
+                  </View>
+                )}
+                <View style={styles.cameraButton}>
+                  {uploading ? (
+                    <ActivityIndicator color={COLORS.surface} size="small" />
+                  ) : (
+                    <Ionicons name="camera-outline" size={18} color={COLORS.surface} />
+                  )}
                 </View>
-              ))}
-            </View>
-          </View>
-        )}
+              </View>
+            </TouchableOpacity>
 
-        <View style={styles.subscriptionCard}>
-          <View style={styles.subscriptionHeader}>
-            <View>
-              <Text style={styles.subscriptionEyebrow}>Ads subscription</Text>
-              <Text style={styles.subscriptionName}>
-                {user?.role === 'helper' ? 'Pro helper visibility' : 'Boosted request plan'}
+            <Text accessibilityRole="header" style={styles.userName}>{user?.name}</Text>
+            {user?.email ? <Text style={styles.contactText}>{user.email}</Text> : null}
+            {user?.phone ? <Text style={styles.contactText}>{user.phone}</Text> : null}
+
+            <View style={styles.roleBadge}>
+              <Ionicons
+                name={user?.role === 'helper' ? 'briefcase-outline' : 'help-circle-outline'}
+                size={15}
+                color={COLORS.primaryDark}
+              />
+              <Text style={styles.roleText}>
+                {user?.role === 'helper' ? 'Service provider' : 'Looking for help'}
               </Text>
             </View>
-            <View style={styles.subscriptionStatus}>
-              <Text style={styles.subscriptionStatusText}>Active</Text>
-            </View>
           </View>
-          <Text style={styles.subscriptionDescription}>
-            {user?.role === 'helper'
-              ? 'Get early access to promoted requests, stronger placement in helper searches, and weekly lead visibility.'
-              : 'Use boosted and top ad packages to keep urgent requests visible and win faster responses from nearby helpers.'}
-          </Text>
-          <View style={styles.subscriptionBenefits}>
-            <View style={styles.subscriptionBenefit}>
-              <Ionicons name="flash" size={16} color="#C2410C" />
-              <Text style={styles.subscriptionBenefitText}>Priority exposure</Text>
-            </View>
-            <View style={styles.subscriptionBenefit}>
-              <Ionicons name="megaphone" size={16} color="#C2410C" />
-              <Text style={styles.subscriptionBenefitText}>Ad boost tools</Text>
-            </View>
-            <View style={styles.subscriptionBenefit}>
-              <Ionicons name="stats-chart" size={16} color="#C2410C" />
-              <Text style={styles.subscriptionBenefitText}>Better conversion</Text>
-            </View>
-          </View>
-          <TouchableOpacity
-            style={styles.subscriptionAction}
-            onPress={() => router.push('/payments')}
-          >
-            <Text style={styles.subscriptionActionText}>View payment history</Text>
-            <Ionicons name="arrow-forward" size={18} color="#7C2D12" />
-          </TouchableOpacity>
-        </View>
 
-        {purchases.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Recent Ad Payments</Text>
-            <View style={styles.purchaseList}>
-              {purchases.slice(0, 3).map((purchase) => (
+          {user?.role === 'helper' ? (
+            <View accessibilityLabel="Provider activity" style={styles.statsContainer}>
+              <View style={styles.statItem}>
+                <Ionicons name="star-outline" size={22} color={COLORS.warning} />
+                <Text style={styles.statValue}>{rating}</Text>
+                <Text style={styles.statLabel}>Customer rating</Text>
+              </View>
+              <View style={styles.statDivider} />
+              <View style={styles.statItem}>
+                <Ionicons name="checkmark-circle-outline" size={22} color={COLORS.primary} />
+                <Text style={styles.statValue}>{user.completed_jobs_count || 0}</Text>
+                <Text style={styles.statLabel}>Completed jobs</Text>
+              </View>
+            </View>
+          ) : null}
+
+          {user?.role === 'helper' && user.skills?.length ? (
+            <View style={styles.section}>
+              <Text accessibilityRole="header" style={styles.sectionTitle}>Skills</Text>
+              <View style={styles.skillsContainer}>
+                {user.skills.map((skill) => (
+                  <View key={skill} style={styles.skillBadge}>
+                    <Text style={styles.skillText}>{skill}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          ) : null}
+
+          {showPromotionTools ? (
+            <View style={styles.promotionCard}>
+              <View style={styles.promotionIcon}>
+                <Ionicons name="megaphone-outline" size={22} color={COLORS.primaryDark} />
+              </View>
+              <View style={styles.promotionCopy}>
+                <Text style={styles.promotionEyebrow}>Optional promotion</Text>
+                <Text accessibilityRole="header" style={styles.promotionTitle}>
+                  Give an urgent request more visibility
+                </Text>
+                <Text style={styles.promotionDescription}>
+                  Free listings remain available. Paid placement is time-limited and does not guarantee responses.
+                </Text>
                 <TouchableOpacity
-                  key={purchase._id}
-                  style={styles.purchaseCard}
+                  accessibilityHint="Shows your promotion payment history"
+                  accessibilityLabel="Review promotion payments"
+                  accessibilityRole="button"
+                  activeOpacity={0.75}
                   onPress={() => router.push('/payments')}
+                  style={styles.promotionAction}
                 >
-                  <View>
-                    <Text style={styles.purchaseTitle}>{purchase.package_name}</Text>
-                    <Text style={styles.purchaseMeta}>
-                      {purchase.currency} {purchase.amount.toLocaleString()}
-                    </Text>
-                  </View>
-                  <View style={styles.purchaseStatus}>
-                    <Text style={styles.purchaseStatusText}>{purchase.status}</Text>
-                  </View>
+                  <Text style={styles.promotionActionText}>Review payments</Text>
+                  <Ionicons name="arrow-forward" size={18} color={COLORS.primaryDark} />
                 </TouchableOpacity>
-              ))}
+              </View>
+            </View>
+          ) : null}
+
+          {loadingPurchases || purchasesError || purchases.length > 0 ? (
+            <View style={styles.section}>
+              <Text accessibilityRole="header" style={styles.sectionTitle}>
+                Recent promotion payments
+              </Text>
+
+              {loadingPurchases ? (
+                <View accessibilityLabel="Loading payment history" accessibilityRole="progressbar" style={styles.inlineState}>
+                  <ActivityIndicator color={COLORS.primary} size="small" />
+                  <Text style={styles.inlineStateText}>Loading payment history...</Text>
+                </View>
+              ) : purchasesError ? (
+                <View accessibilityLiveRegion="polite" style={styles.inlineState}>
+                  <Ionicons name="cloud-offline-outline" size={20} color={COLORS.muted} />
+                  <Text style={styles.inlineStateText}>{purchasesError}</Text>
+                  <TouchableOpacity
+                    accessibilityRole="button"
+                    onPress={loadPurchases}
+                    style={styles.retryButton}
+                  >
+                    <Text style={styles.retryButtonText}>Retry</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <View style={styles.purchaseList}>
+                  {purchases.slice(0, 3).map((purchase) => {
+                    const status = getPaymentStatus(purchase.status);
+
+                    return (
+                      <TouchableOpacity
+                        accessibilityHint="Opens your full payment history"
+                        accessibilityLabel={`${purchase.package_name || 'Promotion payment'}, ${formatPaymentAmount(purchase)}, ${status.label}`}
+                        accessibilityRole="button"
+                        activeOpacity={0.75}
+                        key={purchase._id}
+                        onPress={() => router.push('/payments')}
+                        style={styles.purchaseCard}
+                      >
+                        <View style={styles.purchaseCopy}>
+                          <Text style={styles.purchaseTitle} numberOfLines={2}>
+                            {purchase.package_name || 'Promotion payment'}
+                          </Text>
+                          <Text style={styles.purchaseMeta}>{formatPaymentAmount(purchase)}</Text>
+                        </View>
+                        <View style={[styles.purchaseStatus, { backgroundColor: status.backgroundColor }]}>
+                          <Text style={[styles.purchaseStatusText, { color: status.color }]}>
+                            {status.label}
+                          </Text>
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              )}
+            </View>
+          ) : null}
+
+          <View style={styles.section}>
+            <Text accessibilityRole="header" style={styles.sectionTitle}>Account</Text>
+            <View style={styles.menuList}>
+              <MenuRow
+                description="Update your name, contact details, and skills"
+                icon="person-outline"
+                label="Edit profile"
+                onPress={() => router.push('/edit-profile')}
+              />
+              <MenuRow
+                description="Control the location used for nearby results"
+                icon="location-outline"
+                label="Location"
+                onPress={() => router.push('/location-settings')}
+              />
+              <MenuRow
+                description="Browse local and online groups"
+                icon="people-outline"
+                label="Community"
+                onPress={() => router.push('/(tabs)/community')}
+              />
+              <MenuRow
+                description="See updates about requests, offers, and payments"
+                icon="notifications-outline"
+                label="Notifications"
+                onPress={() => router.push('/(tabs)/notifications')}
+              />
+              <MenuRow
+                description="Review any optional promotion purchases"
+                icon="card-outline"
+                label="Promotion payments"
+                onPress={() => router.push('/payments')}
+              />
+              <MenuRow
+                description="Find support information and common answers"
+                icon="help-circle-outline"
+                label="Help & support"
+                onPress={() => router.push('/help-support')}
+              />
             </View>
           </View>
-        )}
 
-        <View style={styles.section}>
-          <TouchableOpacity style={styles.menuItem} onPress={() => router.push('/edit-profile')}>
-            <Ionicons name="person-outline" size={24} color="#000" />
-            <Text style={styles.menuItemText}>Edit Profile</Text>
-            <Ionicons name="chevron-forward" size={24} color="#ccc" />
-          </TouchableOpacity>
-          
-          <TouchableOpacity style={styles.menuItem} onPress={() => router.push('/location-settings')}>
-            <Ionicons name="location-outline" size={24} color="#000" />
-            <Text style={styles.menuItemText}>Location Settings</Text>
-            <Ionicons name="chevron-forward" size={24} color="#ccc" />
-          </TouchableOpacity>
-          
-          <TouchableOpacity style={styles.menuItem} onPress={() => router.push('/payments')}>
-            <Ionicons name="card-outline" size={24} color="#000" />
-            <Text style={styles.menuItemText}>Ad Payments</Text>
-            <Ionicons name="chevron-forward" size={24} color="#ccc" />
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.menuItem} onPress={() => router.push('/(tabs)/notifications')}>
-            <Ionicons name="notifications-outline" size={24} color="#000" />
-            <Text style={styles.menuItemText}>Notifications</Text>
-            <Ionicons name="chevron-forward" size={24} color="#ccc" />
-          </TouchableOpacity>
-          
-          <TouchableOpacity style={styles.menuItem} onPress={() => router.push('/help-support')}>
-            <Ionicons name="help-circle-outline" size={24} color="#000" />
-            <Text style={styles.menuItemText}>Help & Support</Text>
-            <Ionicons name="chevron-forward" size={24} color="#ccc" />
+          <TouchableOpacity
+            accessibilityLabel="Log out of SolveConnect"
+            accessibilityRole="button"
+            accessibilityState={{ busy: loggingOut, disabled: loggingOut }}
+            activeOpacity={0.75}
+            disabled={loggingOut}
+            onPress={handleLogout}
+            style={styles.logoutButton}
+          >
+            {loggingOut ? (
+              <ActivityIndicator color={COLORS.danger} />
+            ) : (
+              <>
+                <Ionicons name="log-out-outline" size={21} color={COLORS.danger} />
+                <Text style={styles.logoutButtonText}>Log out</Text>
+              </>
+            )}
           </TouchableOpacity>
         </View>
-
-        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-          <Ionicons name="log-out-outline" size={24} color="#fff" />
-          <Text style={styles.logoutButtonText}>Logout</Text>
-        </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
   );
 }
 
+function MenuRow({ description, icon, label, onPress }: MenuRowProps) {
+  return (
+    <TouchableOpacity
+      accessibilityHint={description}
+      accessibilityLabel={label}
+      accessibilityRole="button"
+      activeOpacity={0.7}
+      onPress={onPress}
+      style={styles.menuItem}
+    >
+      <View style={styles.menuIcon}>
+        <Ionicons name={icon} size={21} color={COLORS.primaryDark} />
+      </View>
+      <View style={styles.menuCopy}>
+        <Text style={styles.menuItemText}>{label}</Text>
+        <Text style={styles.menuItemDescription}>{description}</Text>
+      </View>
+      <Ionicons name="chevron-forward" size={20} color={COLORS.muted} />
+    </TouchableOpacity>
+  );
+}
+
+function formatPaymentAmount(purchase: Purchase) {
+  const amount = Number(purchase.amount);
+  const currency = purchase.currency || 'NGN';
+
+  if (!Number.isFinite(amount)) {
+    return currency;
+  }
+
+  try {
+    return new Intl.NumberFormat('en-NG', {
+      style: 'currency',
+      currency,
+      maximumFractionDigits: 0,
+    }).format(amount);
+  } catch {
+    return `${currency} ${amount.toLocaleString()}`;
+  }
+}
+
+function getPaymentStatus(value?: string) {
+  const status = value?.toLowerCase() || 'unknown';
+
+  if (status === 'completed' || status === 'paid') {
+    return { label: 'Completed', backgroundColor: COLORS.primarySoft, color: COLORS.primaryDark };
+  }
+
+  if (status === 'pending' || status === 'processing') {
+    return { label: 'Pending', backgroundColor: COLORS.warningSoft, color: COLORS.warning };
+  }
+
+  if (status === 'failed' || status === 'cancelled' || status === 'canceled') {
+    return { label: status === 'failed' ? 'Failed' : 'Cancelled', backgroundColor: COLORS.dangerSoft, color: COLORS.danger };
+  }
+
+  return { label: value || 'Unknown', backgroundColor: COLORS.canvas, color: COLORS.muted };
+}
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: COLORS.surface,
   },
   scrollContent: {
-    padding: 16,
+    flexGrow: 1,
+    paddingHorizontal: 18,
+    paddingTop: 16,
+    paddingBottom: 40,
+  },
+  contentShell: {
+    width: '100%',
+    maxWidth: 720,
+    alignSelf: 'center',
+  },
+  pageHeader: {
+    marginBottom: 28,
+  },
+  eyebrow: {
+    color: COLORS.primary,
+    fontSize: 12,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+  },
+  pageTitle: {
+    marginTop: 6,
+    color: COLORS.ink,
+    fontSize: 28,
+    lineHeight: 34,
+    fontWeight: '700',
+  },
+  pageDescription: {
+    marginTop: 8,
+    color: COLORS.muted,
+    fontSize: 15,
+    lineHeight: 22,
   },
   profileHeader: {
     alignItems: 'center',
@@ -269,193 +494,102 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   avatar: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: '#f9f9f9',
+    width: 112,
+    height: 112,
+    borderRadius: 56,
+    backgroundColor: COLORS.canvas,
+    borderWidth: 1,
+    borderColor: COLORS.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
   cameraButton: {
     position: 'absolute',
-    right: 0,
-    bottom: 0,
-    backgroundColor: '#000',
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    right: -2,
+    bottom: -2,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 3,
+    borderColor: COLORS.surface,
+    backgroundColor: COLORS.primary,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 3,
-    borderColor: '#fff',
   },
   userName: {
+    maxWidth: '100%',
+    color: COLORS.ink,
     fontSize: 24,
-    fontWeight: 'bold',
-    color: '#000',
-    marginBottom: 4,
+    lineHeight: 30,
+    fontWeight: '700',
+    textAlign: 'center',
   },
-  userEmail: {
+  contactText: {
+    marginTop: 4,
+    color: COLORS.muted,
     fontSize: 14,
-    color: '#666',
-  },
-  userPhone: {
-    fontSize: 14,
-    color: '#666',
-    marginTop: 2,
+    lineHeight: 20,
+    textAlign: 'center',
   },
   roleBadge: {
-    backgroundColor: '#f9f9f9',
-    paddingHorizontal: 16,
-    paddingVertical: 6,
-    borderRadius: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     marginTop: 12,
+    paddingHorizontal: 11,
+    paddingVertical: 7,
+    borderRadius: 999,
+    backgroundColor: COLORS.primarySoft,
   },
   roleText: {
-    fontSize: 12,
+    color: COLORS.primaryDark,
+    fontSize: 13,
     fontWeight: '600',
-    color: '#666',
   },
   statsContainer: {
     flexDirection: 'row',
-    backgroundColor: '#f9f9f9',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 24,
+    alignItems: 'stretch',
+    marginBottom: 28,
+    paddingVertical: 18,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 8,
+    backgroundColor: COLORS.canvas,
   },
   statItem: {
     flex: 1,
     alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
   },
   statDivider: {
     width: 1,
-    backgroundColor: '#e0e0e0',
-    marginHorizontal: 16,
+    backgroundColor: COLORS.border,
   },
   statValue: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#000',
-    marginTop: 8,
+    marginTop: 7,
+    color: COLORS.ink,
+    fontSize: 20,
+    lineHeight: 26,
+    fontWeight: '700',
+    textAlign: 'center',
   },
   statLabel: {
-    fontSize: 12,
-    color: '#666',
-    marginTop: 4,
+    marginTop: 2,
+    color: COLORS.muted,
+    fontSize: 13,
+    lineHeight: 18,
+    textAlign: 'center',
   },
   section: {
-    marginBottom: 24,
-  },
-  subscriptionCard: {
-    backgroundColor: '#FFF7ED',
-    borderRadius: 20,
-    padding: 18,
-    marginBottom: 24,
-    gap: 12,
-    borderWidth: 1,
-    borderColor: '#FED7AA',
-  },
-  subscriptionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    gap: 12,
-  },
-  subscriptionEyebrow: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#C2410C',
-    textTransform: 'uppercase',
-  },
-  subscriptionName: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#7C2D12',
-    marginTop: 4,
-  },
-  subscriptionStatus: {
-    backgroundColor: '#FFEDD5',
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  subscriptionStatusText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#9A3412',
-  },
-  subscriptionDescription: {
-    fontSize: 14,
-    lineHeight: 20,
-    color: '#9A3412',
-  },
-  subscriptionBenefits: {
-    gap: 10,
-  },
-  subscriptionAction: {
-    marginTop: 4,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    borderTopWidth: 1,
-    borderTopColor: '#FED7AA',
-    paddingTop: 12,
-  },
-  subscriptionActionText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#7C2D12',
-  },
-  subscriptionBenefit: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  subscriptionBenefitText: {
-    fontSize: 14,
-    color: '#7C2D12',
-    fontWeight: '600',
+    marginBottom: 28,
   },
   sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#000',
     marginBottom: 12,
-  },
-  purchaseList: {
-    gap: 10,
-  },
-  purchaseCard: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    borderRadius: 16,
-    padding: 16,
-    backgroundColor: '#F9FAFB',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-  },
-  purchaseTitle: {
-    fontSize: 15,
+    color: COLORS.ink,
+    fontSize: 19,
+    lineHeight: 25,
     fontWeight: '700',
-    color: '#111827',
-  },
-  purchaseMeta: {
-    marginTop: 4,
-    fontSize: 13,
-    color: '#6B7280',
-  },
-  purchaseStatus: {
-    backgroundColor: '#DCFCE7',
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  purchaseStatusText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#166534',
-    textTransform: 'capitalize',
   },
   skillsContainer: {
     flexDirection: 'row',
@@ -463,42 +597,195 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   skillBadge: {
-    backgroundColor: '#f9f9f9',
-    paddingHorizontal: 16,
+    paddingHorizontal: 12,
     paddingVertical: 8,
-    borderRadius: 20,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.canvas,
   },
   skillText: {
+    color: COLORS.ink,
     fontSize: 14,
-    color: '#000',
+    lineHeight: 19,
     textTransform: 'capitalize',
   },
-  menuItem: {
+  promotionCard: {
+    flexDirection: 'row',
+    gap: 14,
+    marginBottom: 28,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 8,
+    backgroundColor: COLORS.primarySoft,
+  },
+  promotionIcon: {
+    width: 44,
+    height: 44,
+    flexShrink: 0,
+    borderRadius: 8,
+    backgroundColor: COLORS.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  promotionCopy: {
+    flex: 1,
+  },
+  promotionEyebrow: {
+    color: COLORS.primary,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+  },
+  promotionTitle: {
+    marginTop: 3,
+    color: COLORS.ink,
+    fontSize: 18,
+    lineHeight: 24,
+    fontWeight: '700',
+  },
+  promotionDescription: {
+    marginTop: 6,
+    color: COLORS.muted,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  promotionAction: {
+    minHeight: 44,
+    flexDirection: 'row',
+    alignSelf: 'flex-start',
+    alignItems: 'center',
+    gap: 7,
+    marginTop: 8,
+    paddingRight: 6,
+  },
+  promotionActionText: {
+    color: COLORS.primaryDark,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  inlineState: {
+    minHeight: 56,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 16,
+    gap: 10,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 8,
+    backgroundColor: COLORS.canvas,
+  },
+  inlineStateText: {
+    flex: 1,
+    color: COLORS.muted,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  retryButton: {
+    minHeight: 40,
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+  },
+  retryButtonText: {
+    color: COLORS.primaryDark,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  purchaseList: {
+    gap: 10,
+  },
+  purchaseCard: {
+    minHeight: 72,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 8,
+    backgroundColor: COLORS.surface,
+  },
+  purchaseCopy: {
+    flex: 1,
+  },
+  purchaseTitle: {
+    color: COLORS.ink,
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '700',
+  },
+  purchaseMeta: {
+    marginTop: 3,
+    color: COLORS.muted,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  purchaseStatus: {
+    flexShrink: 0,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  purchaseStatusText: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '700',
+  },
+  menuList: {
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+  },
+  menuItem: {
+    minHeight: 74,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    borderBottomColor: COLORS.border,
+  },
+  menuIcon: {
+    width: 40,
+    height: 40,
+    flexShrink: 0,
+    borderRadius: 8,
+    backgroundColor: COLORS.primarySoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  menuCopy: {
+    flex: 1,
   },
   menuItemText: {
-    flex: 1,
+    color: COLORS.ink,
     fontSize: 16,
-    color: '#000',
-    marginLeft: 16,
+    lineHeight: 21,
+    fontWeight: '600',
+  },
+  menuItemDescription: {
+    marginTop: 2,
+    color: COLORS.muted,
+    fontSize: 13,
+    lineHeight: 18,
   },
   logoutButton: {
+    minHeight: 50,
     flexDirection: 'row',
-    backgroundColor: '#000',
-    borderRadius: 12,
-    padding: 16,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    marginTop: 8,
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderColor: '#F3B7B2',
+    borderRadius: 8,
+    backgroundColor: COLORS.dangerSoft,
   },
   logoutButtonText: {
-    color: '#fff',
+    color: COLORS.danger,
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '700',
   },
 });

@@ -1,219 +1,418 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  FlatList,
-  RefreshControl,
-} from 'react-native';
+import { FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { adsAPI } from '../services/api';
-import { Ionicons } from '@expo/vector-icons';
 import { formatDistanceToNow } from 'date-fns';
 
+import {
+  AppButton,
+  EmptyState,
+  LoadingState,
+  ScreenHeader,
+  StatusBadge,
+  type StatusBadgeTone,
+} from '../components/ui';
+import { colors, radius, spacing, typography } from '../constants/theme';
+import { adsAPI } from '../services/api';
+import { getApiErrorMessage } from '../services/error';
+
+type AdPayment = {
+  _id: string;
+  package_name?: string;
+  provider?: string;
+  currency?: string;
+  amount?: number | string;
+  status?: string;
+  created_at?: string;
+  completed_at?: string;
+  job_id?: string;
+};
+
+function getStatusTone(status?: string): StatusBadgeTone {
+  if (status === 'completed') return 'success';
+  if (status === 'pending') return 'warning';
+  if (status === 'failed' || status === 'cancelled') return 'danger';
+  return 'neutral';
+}
+
+function formatStatus(status?: string) {
+  if (!status) return 'Unknown';
+  return status.charAt(0).toUpperCase() + status.slice(1).replace(/_/g, ' ');
+}
+
+function formatAmount(amount?: number | string, currency = 'NGN') {
+  const numericAmount = Number(amount);
+  return `${currency} ${Number.isFinite(numericAmount) ? numericAmount.toLocaleString() : '0'}`;
+}
+
+function formatRelativeDate(value?: string) {
+  if (!value) return 'Date unavailable';
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Date unavailable';
+
+  return formatDistanceToNow(date, { addSuffix: true });
+}
+
 export default function PaymentsScreen() {
-  const [payments, setPayments] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
+  const router = useRouter();
+  const [payments, setPayments] = useState<AdPayment[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const goBack = () => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+    router.replace('/(tabs)/profile');
+  };
 
   const loadPayments = useCallback(async () => {
     setLoading(true);
+    setError(null);
+
     try {
       const response = await adsAPI.getPurchases();
-      setPayments(response.data || []);
-    } catch (error) {
-      console.error('Error loading payments:', error);
+      setPayments(Array.isArray(response.data) ? response.data : []);
+    } catch (requestError: any) {
+      setError(getApiErrorMessage(requestError, 'Unable to load promotion payments right now.'));
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    loadPayments();
+    void loadPayments();
   }, [loadPayments]);
 
   const completedPayments = payments.filter((payment) => payment.status === 'completed');
-  const totalSpend = completedPayments.reduce((sum, payment) => sum + (payment.amount || 0), 0);
+  const totalSpend = completedPayments.reduce((sum, payment) => {
+    const amount = Number(payment.amount);
+    return sum + (Number.isFinite(amount) ? amount : 0);
+  }, 0);
 
-  const renderPayment = ({ item }: any) => (
+  const renderPayment = ({ item }: { item: AdPayment }) => (
     <View style={styles.paymentCard}>
       <View style={styles.paymentHeader}>
-        <View>
-          <Text style={styles.paymentTitle}>{item.package_name}</Text>
+        <View style={styles.paymentHeadingCopy}>
+          <Text style={styles.paymentTitle}>{item.package_name || 'Promotion payment'}</Text>
           <Text style={styles.paymentMeta}>
-            {item.provider?.toUpperCase?.() || 'PAYMENT'} • {item.currency} {(item.amount || 0).toLocaleString()}
+            {(item.provider || 'Payment provider').toUpperCase()} · {formatAmount(item.amount, item.currency)}
           </Text>
         </View>
-        <View style={[styles.statusPill, item.status === 'completed' ? styles.statusCompleted : styles.statusPending]}>
-          <Text style={[styles.statusText, item.status === 'completed' ? styles.statusCompletedText : styles.statusPendingText]}>
-            {item.status}
-          </Text>
-        </View>
+        <StatusBadge label={formatStatus(item.status)} tone={getStatusTone(item.status)} />
       </View>
 
-      <View style={styles.timelineRow}>
-        <Ionicons name="time-outline" size={16} color="#6B7280" />
-        <Text style={styles.timelineText}>
-          Created {formatDistanceToNow(new Date(item.created_at), { addSuffix: true })}
-        </Text>
+      <View style={styles.timeline}>
+        <View style={styles.timelineRow}>
+          <Ionicons name="time-outline" size={17} color={colors.muted} />
+          <Text style={styles.timelineText}>Created {formatRelativeDate(item.created_at)}</Text>
+        </View>
+
+        {item.completed_at ? (
+          <View style={styles.timelineRow}>
+            <Ionicons name="checkmark-circle-outline" size={17} color={colors.success} />
+            <Text style={styles.timelineText}>Confirmed {formatRelativeDate(item.completed_at)}</Text>
+          </View>
+        ) : null}
       </View>
 
-      {item.completed_at && (
-        <View style={styles.timelineRow}>
-          <Ionicons name="checkmark-circle-outline" size={16} color="#166534" />
-          <Text style={styles.timelineText}>
-            Confirmed {formatDistanceToNow(new Date(item.completed_at), { addSuffix: true })}
-          </Text>
+      {item.job_id ? (
+        <View style={styles.linkedRequestRow}>
+          <View style={styles.linkedRequestCopy}>
+            <Ionicons name="megaphone-outline" size={18} color={colors.accentDark} />
+            <Text style={styles.linkedRequestText}>Linked to a request</Text>
+          </View>
+          <AppButton
+            accessibilityHint="Opens the request linked to this payment"
+            icon="arrow-forward"
+            iconPosition="right"
+            label="View request"
+            onPress={() => router.push(`/job/${item.job_id}`)}
+            size="small"
+            variant="ghost"
+          />
         </View>
-      )}
-
-      {item.job_id && (
-        <View style={styles.timelineRow}>
-          <Ionicons name="megaphone-outline" size={16} color="#9A3412" />
-          <Text style={styles.timelineText}>Linked to listing {item.job_id}</Text>
-        </View>
-      )}
+      ) : null}
     </View>
   );
 
-  return (
-    <SafeAreaView style={styles.container}>
-      <FlatList
-        data={payments}
-        keyExtractor={(item) => item._id}
-        renderItem={renderPayment}
-        contentContainerStyle={styles.listContent}
-        refreshControl={<RefreshControl refreshing={loading} onRefresh={loadPayments} />}
-        ListHeaderComponent={
-          <View style={styles.summaryCard}>
-            <Text style={styles.summaryLabel}>Ad payments</Text>
-            <Text style={styles.summaryValue}>{payments.length}</Text>
-            <Text style={styles.summaryText}>
-              Total confirmed spend: NGN {totalSpend.toLocaleString()}
-            </Text>
-          </View>
-        }
-        ListEmptyComponent={
-          !loading ? (
-            <View style={styles.emptyContainer}>
-              <Ionicons name="receipt-outline" size={64} color="#D1D5DB" />
-              <Text style={styles.emptyTitle}>No ad payments yet</Text>
-              <Text style={styles.emptyText}>
-                Boosted and top listing purchases will appear here after checkout.
-              </Text>
+  const renderListHeader = () => {
+    if (error && payments.length === 0) return null;
+
+    return (
+      <View style={styles.listHeader}>
+        <View style={styles.summaryBand}>
+          <View style={styles.summaryHeading}>
+            <View>
+              <Text style={styles.summaryEyebrow}>Payment history</Text>
+              <Text style={styles.summaryTitle}>Promotion spend</Text>
             </View>
-          ) : null
-        }
+            <View style={styles.receiptIcon}>
+              <Ionicons name="receipt-outline" size={24} color={colors.ink} />
+            </View>
+          </View>
+
+          <View style={styles.summaryMetrics}>
+            <View style={styles.summaryMetric}>
+              <Text
+                adjustsFontSizeToFit
+                minimumFontScale={0.72}
+                numberOfLines={1}
+                style={styles.summaryValue}
+              >
+                {formatAmount(totalSpend)}
+              </Text>
+              <Text style={styles.summaryLabel}>Confirmed spend</Text>
+            </View>
+            <View style={styles.summaryDivider} />
+            <View style={styles.summaryMetric}>
+              <Text
+                adjustsFontSizeToFit
+                minimumFontScale={0.72}
+                numberOfLines={1}
+                style={styles.summaryValue}
+              >
+                {payments.length}
+              </Text>
+              <Text style={styles.summaryLabel}>Payment records</Text>
+            </View>
+          </View>
+        </View>
+
+        {error && payments.length > 0 ? (
+          <View accessibilityLiveRegion="polite" style={styles.errorBanner}>
+            <Ionicons name="cloud-offline-outline" size={20} color={colors.danger} />
+            <View style={styles.errorCopy}>
+              <Text style={styles.errorTitle}>Could not refresh payments</Text>
+              <Text style={styles.errorText}>{error}</Text>
+            </View>
+            <AppButton label="Retry" onPress={loadPayments} size="small" variant="ghost" />
+          </View>
+        ) : null}
+
+        <Text accessibilityRole="header" style={styles.sectionTitle}>
+          Recent payments
+        </Text>
+      </View>
+    );
+  };
+
+  const renderEmptyState = () => {
+    if (error) {
+      return (
+        <EmptyState
+          actionLabel="Try again"
+          description={error}
+          icon="cloud-offline-outline"
+          onAction={loadPayments}
+          title="Payment history could not load"
+        />
+      );
+    }
+
+    return (
+      <EmptyState
+        description="Boosted and top request purchases will appear here after checkout."
+        icon="receipt-outline"
+        title="No promotion payments yet"
       />
+    );
+  };
+
+  return (
+    <SafeAreaView edges={['top', 'bottom']} style={styles.container}>
+      <View style={styles.frame}>
+        <ScreenHeader
+          title="Promotion payments"
+          subtitle="Review payment status and the requests linked to your ad promotions."
+          eyebrow="Billing"
+          onBack={goBack}
+          bordered
+        />
+
+        {loading && payments.length === 0 ? (
+          <LoadingState fullScreen label="Loading payment history" />
+        ) : (
+          <FlatList
+            contentContainerStyle={styles.listContent}
+            data={payments}
+            keyExtractor={(item) => item._id}
+            ListEmptyComponent={renderEmptyState}
+            ListHeaderComponent={renderListHeader}
+            refreshControl={
+              <RefreshControl
+                colors={[colors.primary]}
+                onRefresh={loadPayments}
+                refreshing={loading}
+                tintColor={colors.primary}
+              />
+            }
+            renderItem={renderPayment}
+            showsVerticalScrollIndicator={false}
+          />
+        )}
+      </View>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
+    backgroundColor: colors.canvas,
     flex: 1,
-    backgroundColor: '#fff',
+  },
+  frame: {
+    alignSelf: 'center',
+    flex: 1,
+    maxWidth: 760,
+    width: '100%',
   },
   listContent: {
-    padding: 16,
-    gap: 12,
     flexGrow: 1,
+    gap: spacing.md,
+    padding: spacing.lg,
+    paddingBottom: spacing.page,
   },
-  summaryCard: {
-    backgroundColor: '#111827',
-    borderRadius: 22,
-    padding: 18,
-    marginBottom: 12,
+  listHeader: {
+    gap: spacing.lg,
+    marginBottom: spacing.xs,
   },
-  summaryLabel: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#FDE68A',
-    textTransform: 'uppercase',
+  summaryBand: {
+    backgroundColor: colors.ink,
+    borderRadius: radius.lg,
+    gap: spacing.xl,
+    padding: spacing.xl,
   },
-  summaryValue: {
-    marginTop: 8,
-    fontSize: 34,
-    fontWeight: '700',
-    color: '#fff',
-  },
-  summaryText: {
-    marginTop: 6,
-    fontSize: 14,
-    color: '#D1D5DB',
-  },
-  paymentCard: {
-    backgroundColor: '#F9FAFB',
-    borderRadius: 18,
-    padding: 16,
-    gap: 10,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-  },
-  paymentHeader: {
+  summaryHeading: {
+    alignItems: 'flex-start',
     flexDirection: 'row',
     justifyContent: 'space-between',
-    gap: 12,
+  },
+  summaryEyebrow: {
+    ...typography.overline,
+    color: colors.primarySoft,
+  },
+  summaryTitle: {
+    ...typography.h3,
+    color: colors.inverse,
+    marginTop: spacing.xs,
+  },
+  receiptIcon: {
+    alignItems: 'center',
+    backgroundColor: colors.accent,
+    borderRadius: radius.lg,
+    height: 44,
+    justifyContent: 'center',
+    width: 44,
+  },
+  summaryMetrics: {
+    alignItems: 'stretch',
+    flexDirection: 'row',
+    gap: spacing.lg,
+  },
+  summaryMetric: {
+    flex: 1,
+    gap: spacing.xs,
+  },
+  summaryValue: {
+    ...typography.title,
+    color: colors.inverse,
+  },
+  summaryLabel: {
+    ...typography.caption,
+    color: colors.disabled,
+  },
+  summaryDivider: {
+    backgroundColor: colors.muted,
+    width: 1,
+  },
+  errorBanner: {
+    alignItems: 'center',
+    backgroundColor: colors.dangerSoft,
+    borderColor: colors.danger,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: spacing.sm,
+    padding: spacing.md,
+  },
+  errorCopy: {
+    flex: 1,
+    gap: spacing.xs,
+  },
+  errorTitle: {
+    ...typography.bodyStrong,
+    color: colors.danger,
+  },
+  errorText: {
+    ...typography.caption,
+    color: colors.danger,
+  },
+  sectionTitle: {
+    ...typography.title,
+    color: colors.ink,
+  },
+  paymentCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    gap: spacing.lg,
+    padding: spacing.lg,
+  },
+  paymentHeader: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
+    gap: spacing.md,
+    justifyContent: 'space-between',
+  },
+  paymentHeadingCopy: {
+    flex: 1,
+    gap: spacing.xs,
+    minWidth: 0,
   },
   paymentTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#111827',
+    ...typography.title,
+    color: colors.ink,
   },
   paymentMeta: {
-    marginTop: 4,
-    fontSize: 13,
-    color: '#6B7280',
+    ...typography.caption,
+    color: colors.muted,
   },
-  statusPill: {
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    alignSelf: 'flex-start',
-  },
-  statusCompleted: {
-    backgroundColor: '#DCFCE7',
-  },
-  statusPending: {
-    backgroundColor: '#FEF3C7',
-  },
-  statusText: {
-    fontSize: 12,
-    fontWeight: '700',
-    textTransform: 'capitalize',
-  },
-  statusCompletedText: {
-    color: '#166534',
-  },
-  statusPendingText: {
-    color: '#92400E',
+  timeline: {
+    gap: spacing.sm,
   },
   timelineRow: {
-    flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    flexDirection: 'row',
+    gap: spacing.sm,
   },
   timelineText: {
+    ...typography.body,
+    color: colors.muted,
     flex: 1,
-    fontSize: 13,
-    color: '#4B5563',
   },
-  emptyContainer: {
-    flex: 1,
+  linkedRequestRow: {
     alignItems: 'center',
-    justifyContent: 'center',
-    padding: 32,
+    borderTopColor: colors.border,
+    borderTopWidth: 1,
+    flexDirection: 'row',
+    gap: spacing.sm,
+    justifyContent: 'space-between',
+    paddingTop: spacing.md,
   },
-  emptyTitle: {
-    marginTop: 16,
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#111827',
+  linkedRequestCopy: {
+    alignItems: 'center',
+    flex: 1,
+    flexDirection: 'row',
+    gap: spacing.sm,
   },
-  emptyText: {
-    marginTop: 8,
-    fontSize: 14,
-    lineHeight: 20,
-    color: '#6B7280',
-    textAlign: 'center',
+  linkedRequestText: {
+    ...typography.bodyStrong,
+    color: colors.accentDark,
+    flex: 1,
   },
 });

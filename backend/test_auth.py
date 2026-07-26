@@ -1,5 +1,24 @@
-def test_register_login_and_me_flow(auth_client):
+import core
+
+
+async def _fake_send_signup_verification_email(email: str, code: str):
+    return None
+
+
+def request_signup_code(test_client, monkeypatch, email="new-user@example.com", code="123456"):
+    monkeypatch.setattr(core, "send_signup_verification_email", _fake_send_signup_verification_email)
+    monkeypatch.setattr(core, "generate_email_verification_code", lambda: code)
+
+    response = test_client.post("/api/auth/send-email-code", json={"email": email})
+
+    assert response.status_code == 200
+    assert response.json()["message"] == "Verification code sent"
+    return code
+
+
+def test_register_login_and_me_flow(auth_client, monkeypatch):
     test_client, fake_db = auth_client
+    code = request_signup_code(test_client, monkeypatch)
 
     register_response = test_client.post(
         "/api/auth/register",
@@ -8,6 +27,7 @@ def test_register_login_and_me_flow(auth_client):
             "password": "super-secret",
             "name": "New User",
             "role": "need_help",
+            "email_verification_code": code,
         },
     )
 
@@ -43,8 +63,29 @@ def test_register_login_and_me_flow(auth_client):
     assert "password_hash" not in me_data
 
 
-def test_register_rejects_duplicate_email(auth_client):
+def test_send_email_code_rejects_duplicate_email(auth_client, monkeypatch):
+    test_client, fake_db = auth_client
+
+    fake_db.users.documents.append(
+        {
+            "_id": fake_db.buyer_id,
+            "email": "duplicate@example.com",
+            "name": "Existing User",
+            "role": "need_help",
+            "password_hash": "hashed",
+        }
+    )
+
+    monkeypatch.setattr(core, "send_signup_verification_email", _fake_send_signup_verification_email)
+    response = test_client.post("/api/auth/send-email-code", json={"email": "duplicate@example.com"})
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Email already registered"
+
+
+def test_register_rejects_duplicate_email(auth_client, monkeypatch):
     test_client, _ = auth_client
+    code = request_signup_code(test_client, monkeypatch, email="duplicate@example.com")
 
     first_response = test_client.post(
         "/api/auth/register",
@@ -53,6 +94,7 @@ def test_register_rejects_duplicate_email(auth_client):
             "password": "super-secret",
             "name": "First User",
             "role": "need_help",
+            "email_verification_code": code,
         },
     )
     assert first_response.status_code == 200
@@ -64,6 +106,7 @@ def test_register_rejects_duplicate_email(auth_client):
             "password": "another-secret",
             "name": "Second User",
             "role": "need_help",
+            "email_verification_code": code,
         },
     )
 
@@ -71,8 +114,45 @@ def test_register_rejects_duplicate_email(auth_client):
     assert second_response.json()["detail"] == "Email already registered"
 
 
-def test_login_rejects_invalid_credentials(auth_client):
+def test_register_requires_verification_code_for_email_signup(auth_client):
     test_client, _ = auth_client
+
+    register_response = test_client.post(
+        "/api/auth/register",
+        json={
+            "email": "new-user@example.com",
+            "password": "super-secret",
+            "name": "New User",
+            "role": "need_help",
+        },
+    )
+
+    assert register_response.status_code == 400
+    assert register_response.json()["detail"] == "Email verification code required"
+
+
+def test_register_rejects_invalid_verification_code(auth_client, monkeypatch):
+    test_client, _ = auth_client
+    request_signup_code(test_client, monkeypatch, code="123456")
+
+    register_response = test_client.post(
+        "/api/auth/register",
+        json={
+            "email": "new-user@example.com",
+            "password": "super-secret",
+            "name": "New User",
+            "role": "need_help",
+            "email_verification_code": "654321",
+        },
+    )
+
+    assert register_response.status_code == 400
+    assert register_response.json()["detail"] == "Invalid email verification code"
+
+
+def test_login_rejects_invalid_credentials(auth_client, monkeypatch):
+    test_client, _ = auth_client
+    code = request_signup_code(test_client, monkeypatch, email="login-user@example.com")
 
     register_response = test_client.post(
         "/api/auth/register",
@@ -81,6 +161,7 @@ def test_login_rejects_invalid_credentials(auth_client):
             "password": "super-secret",
             "name": "Login User",
             "role": "need_help",
+            "email_verification_code": code,
         },
     )
     assert register_response.status_code == 200
@@ -132,6 +213,7 @@ def test_register_rejects_invalid_role(auth_client):
             "password": "super-secret",
             "name": "Bad Role",
             "role": "admin",
+            "email_verification_code": "123456",
         },
     )
 

@@ -26,6 +26,12 @@ async def create_review(current_user_id: str, review_data: core.ReviewCreate):
         "user_id": current_user_id,
         "rating": review_data.rating,
         "comment": review_data.comment,
+        "quality": review_data.quality or review_data.rating,
+        "speed": review_data.speed or review_data.rating,
+        "price_fairness": review_data.price_fairness or review_data.rating,
+        "communication": review_data.communication or review_data.rating,
+        "solved": review_data.solved,
+        "outcome_score": calculate_outcome_score(review_data),
         "created_at": datetime.utcnow(),
     }
     await core.db.reviews.insert_one(review_dict)
@@ -36,6 +42,10 @@ async def create_review(current_user_id: str, review_data: core.ReviewCreate):
         new_rating_count = helper.get("rating_count", 0) + 1
         new_rating = new_total_rating / new_rating_count
         new_completed_jobs = helper.get("completed_jobs_count", 0) + 1
+        previous_trust = helper.get("trust_score", 70)
+        trust_score = min(100, round((previous_trust * 0.65) + (review_dict["outcome_score"] * 20 * 0.35), 2))
+        success_count = helper.get("success_count", 0) + (1 if review_data.solved else 0)
+        success_rate = round((success_count / new_completed_jobs) * 100, 2) if new_completed_jobs else 0
         await core.db.users.update_one(
             {"_id": ObjectId(review_data.helper_id)},
             {"$set": {
@@ -43,6 +53,10 @@ async def create_review(current_user_id: str, review_data: core.ReviewCreate):
                 "rating_count": new_rating_count,
                 "rating": round(new_rating, 2),
                 "completed_jobs_count": new_completed_jobs,
+                "success_count": success_count,
+                "success_rate": success_rate,
+                "trust_score": trust_score,
+                "reputation_score": round((round(new_rating, 2) * 14) + (success_rate * 0.3), 2),
             }},
         )
 
@@ -67,3 +81,17 @@ async def get_helper_reviews(helper_id: str):
         return reviews
     except Exception as exc:
         raise core.HTTPException(status_code=400, detail=str(exc))
+
+
+def calculate_outcome_score(review_data: core.ReviewCreate):
+    values = [
+        review_data.rating,
+        review_data.quality or review_data.rating,
+        review_data.speed or review_data.rating,
+        review_data.price_fairness or review_data.rating,
+        review_data.communication or review_data.rating,
+    ]
+    average = sum(values) / len(values)
+    if review_data.solved is False:
+        average = min(average, 3)
+    return round(average, 2)

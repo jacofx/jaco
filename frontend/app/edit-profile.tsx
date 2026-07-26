@@ -1,28 +1,38 @@
 import React, { useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  TextInput,
-  TouchableOpacity,
-  ScrollView,
+  Alert,
   KeyboardAvoidingView,
   Platform,
-  ActivityIndicator,
-  Alert,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { useAuthStore } from '../store/authStore';
-import { userAPI } from '../services/api';
+import { SafeAreaView } from 'react-native-safe-area-context';
+
+import { AppButton, FormField, ScreenHeader } from '../components/ui';
+import { colors, layout, radius, spacing, typography } from '../constants/theme';
 import { getApiErrorMessage } from '../services/error';
+import { userAPI } from '../services/api';
+import { useAuthStore } from '../store/authStore';
 
 export default function EditProfileScreen() {
   const router = useRouter();
   const { user, setUser } = useAuthStore();
   const [name, setName] = useState(user?.name ?? '');
   const [skills, setSkills] = useState(user?.skills?.join(', ') ?? '');
+  const [nameError, setNameError] = useState<string | undefined>();
+  const [submissionError, setSubmissionError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+
+  const goBack = () => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+    router.replace('/(tabs)/profile');
+  };
 
   const handleSave = async () => {
     const trimmedName = name.trim();
@@ -32,10 +42,12 @@ export default function EditProfileScreen() {
         : undefined;
 
     if (!trimmedName) {
-      Alert.alert('Missing Name', 'Name is required.');
+      setNameError('Enter the name you want people to see.');
       return;
     }
 
+    setNameError(undefined);
+    setSubmissionError(null);
     setIsSaving(true);
 
     try {
@@ -45,149 +57,153 @@ export default function EditProfileScreen() {
       });
 
       setUser(response.data);
-      Alert.alert('Profile Updated', 'Your profile changes have been saved.');
-      router.back();
+      Alert.alert('Profile updated', 'Your changes have been saved.', [
+        { text: 'Done', onPress: goBack },
+      ]);
     } catch (error: any) {
-      Alert.alert('Update Failed', getApiErrorMessage(error, 'Unable to update profile.'));
+      setSubmissionError(getApiErrorMessage(error, 'Unable to update your profile right now.'));
     } finally {
       setIsSaving(false);
     }
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
-        <ScrollView contentContainerStyle={styles.content}>
-          <Text style={styles.title}>Edit Profile</Text>
-          <Text style={styles.subtitle}>Update the details shown on your account.</Text>
+    <SafeAreaView edges={['top', 'bottom']} style={styles.container}>
+      <View style={styles.frame}>
+        <ScreenHeader
+          title="Edit profile"
+          subtitle="Keep the account details shown across SolveConnect accurate."
+          eyebrow="Account"
+          onBack={goBack}
+          bordered
+        />
 
-          <View style={styles.section}>
-            <Text style={styles.label}>Full Name</Text>
-            <TextInput
-              style={styles.input}
-              value={name}
-              onChangeText={setName}
-              placeholder="Your full name"
-              placeholderTextColor="#999"
-            />
-          </View>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.flex}
+        >
+          <ScrollView
+            contentContainerStyle={styles.content}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={styles.form}>
+              {submissionError ? (
+                <View accessibilityLiveRegion="polite" style={styles.errorBanner}>
+                  <Text style={styles.errorTitle}>Changes were not saved</Text>
+                  <Text style={styles.errorText}>{submissionError}</Text>
+                </View>
+              ) : null}
 
-          {user?.email ? (
-            <View style={styles.section}>
-              <Text style={styles.label}>Email</Text>
-              <View style={styles.readonlyField}>
-                <Text style={styles.readonlyText}>{user.email}</Text>
-              </View>
-            </View>
-          ) : null}
-
-          {user?.phone ? (
-            <View style={styles.section}>
-              <Text style={styles.label}>Phone</Text>
-              <View style={styles.readonlyField}>
-                <Text style={styles.readonlyText}>{user.phone}</Text>
-              </View>
-            </View>
-          ) : null}
-
-          {user?.role === 'helper' ? (
-            <View style={styles.section}>
-              <Text style={styles.label}>Skills</Text>
-              <TextInput
-                style={[styles.input, styles.multilineInput]}
-                value={skills}
-                onChangeText={setSkills}
-                placeholder="electrician, plumber, painter"
-                placeholderTextColor="#999"
-                multiline
+              <FormField
+                autoCapitalize="words"
+                autoComplete="name"
+                error={nameError}
+                label="Full name"
+                leftIcon="person-outline"
+                onChangeText={(value) => {
+                  setName(value);
+                  if (nameError) setNameError(undefined);
+                }}
+                placeholder="Your full name"
+                required
+                returnKeyType="done"
+                value={name}
               />
-              <Text style={styles.helperText}>Separate skills with commas.</Text>
-            </View>
-          ) : null}
 
-          <TouchableOpacity style={styles.button} onPress={handleSave} disabled={isSaving}>
-            {isSaving ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.buttonText}>Save Changes</Text>
-            )}
-          </TouchableOpacity>
-        </ScrollView>
-      </KeyboardAvoidingView>
+              {user?.email ? (
+                <FormField
+                  disabled
+                  helperText="Email changes are not available from this screen."
+                  label="Email"
+                  leftIcon="mail-outline"
+                  value={user.email}
+                />
+              ) : null}
+
+              {user?.phone ? (
+                <FormField
+                  disabled
+                  helperText="Phone changes are not available from this screen."
+                  label="Phone"
+                  leftIcon="call-outline"
+                  value={user.phone}
+                />
+              ) : null}
+
+              {user?.role === 'helper' ? (
+                <FormField
+                  autoCapitalize="none"
+                  helperText="Separate each skill with a comma, for example: electrician, plumber, painter."
+                  label="Skills"
+                  leftIcon="construct-outline"
+                  multiline
+                  onChangeText={setSkills}
+                  placeholder="electrician, plumber, painter"
+                  value={skills}
+                />
+              ) : null}
+
+              <AppButton
+                accessibilityHint="Saves your profile details"
+                fullWidth
+                icon="checkmark-circle-outline"
+                label="Save changes"
+                loading={isSaving}
+                onPress={handleSave}
+                size="large"
+                style={styles.saveButton}
+              />
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </View>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
+    backgroundColor: colors.canvas,
     flex: 1,
-    backgroundColor: '#fff',
+  },
+  frame: {
+    alignSelf: 'center',
+    flex: 1,
+    maxWidth: layout.readingMaxWidth,
+    width: '100%',
   },
   flex: {
     flex: 1,
   },
   content: {
-    padding: 20,
-    gap: 18,
+    flexGrow: 1,
+    padding: spacing.lg,
+    paddingBottom: spacing.page,
   },
-  title: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: '#111827',
+  form: {
+    alignSelf: 'center',
+    gap: spacing.xl,
+    maxWidth: layout.formMaxWidth,
+    width: '100%',
   },
-  subtitle: {
-    fontSize: 15,
-    color: '#6B7280',
-  },
-  section: {
-    gap: 8,
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#111827',
-  },
-  input: {
+  errorBanner: {
+    backgroundColor: colors.dangerSoft,
+    borderColor: colors.danger,
+    borderRadius: radius.lg,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 14,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 16,
-    backgroundColor: '#F9FAFB',
-    color: '#111827',
+    gap: spacing.xs,
+    padding: spacing.md,
   },
-  multilineInput: {
-    minHeight: 110,
-    textAlignVertical: 'top',
+  errorTitle: {
+    ...typography.bodyStrong,
+    color: colors.danger,
   },
-  readonlyField: {
-    borderRadius: 14,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    backgroundColor: '#F3F4F6',
+  errorText: {
+    ...typography.body,
+    color: colors.danger,
   },
-  readonlyText: {
-    fontSize: 16,
-    color: '#6B7280',
-  },
-  helperText: {
-    fontSize: 13,
-    color: '#6B7280',
-  },
-  button: {
-    marginTop: 8,
-    backgroundColor: '#111827',
-    borderRadius: 14,
-    paddingVertical: 16,
-    alignItems: 'center',
-  },
-  buttonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
+  saveButton: {
+    marginTop: spacing.xs,
   },
 });

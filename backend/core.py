@@ -1,17 +1,24 @@
+import asyncio
+import hashlib
 import math
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
+from email.message import EmailMessage
 from enum import Enum
 import logging
 from pathlib import Path
+import random
+import smtplib
+import ssl
 from urllib.parse import parse_qs, urlparse
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from bson import ObjectId
 from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, FastAPI, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+import httpx
 from jose import JWTError, jwt
 from motor.motor_asyncio import AsyncIOMotorClient
 from passlib.context import CryptContext
@@ -31,6 +38,17 @@ stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
 SECRET_KEY = os.environ.get("SECRET_KEY", "your-secret-key-change-in-production")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7
+EMAIL_VERIFICATION_CODE_TTL_MINUTES = int(os.environ.get("EMAIL_VERIFICATION_CODE_TTL_MINUTES", "10"))
+SMTP_HOST = os.environ.get("SMTP_HOST")
+SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
+SMTP_USERNAME = os.environ.get("SMTP_USERNAME")
+SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD")
+SMTP_FROM_EMAIL = os.environ.get("SMTP_FROM_EMAIL")
+SMTP_USE_TLS = os.environ.get("SMTP_USE_TLS", "true").lower() not in {"false", "0", "no"}
+SMTP_USE_SSL = os.environ.get("SMTP_USE_SSL", "false").lower() in {"true", "1", "yes"}
+SMTP_TIMEOUT_SECONDS = float(os.environ.get("SMTP_TIMEOUT_SECONDS", "10"))
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY")
+RESEND_API_URL = os.environ.get("RESEND_API_URL", "https://api.resend.com/emails")
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer()
@@ -78,6 +96,19 @@ class JobStatus(str, Enum):
     COMPLETED = "completed"
 
 
+class OfferStatus(str, Enum):
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+    DECLINED = "declined"
+
+
+class BookingStatus(str, Enum):
+    PENDING_PAYMENT = "pending_payment"
+    PAID = "paid"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+
+
 class Location(BaseModel):
     lat: float
     lng: float
@@ -119,12 +150,24 @@ class UserRegister(BaseModel):
     name: str
     role: UserRole
     skills: Optional[List[str]] = []
+    email_verification_code: Optional[str] = None
+
+
+class EmailVerificationRequest(BaseModel):
+    email: EmailStr
 
 
 class UserLogin(BaseModel):
     email: Optional[str] = None
     phone: Optional[str] = None
     password: str
+
+
+class GoogleLogin(BaseModel):
+    id_token: Optional[str] = None
+    access_token: Optional[str] = None
+    role: Optional[UserRole] = UserRole.NEED_HELP
+    skills: Optional[List[str]] = []
 
 
 class UserUpdate(BaseModel):
@@ -148,11 +191,40 @@ class JobCreate(BaseModel):
     is_featured: Optional[bool] = None
     is_urgent: Optional[bool] = None
     payment_id: Optional[str] = None
+    ai_analysis: Optional[dict[str, Any]] = None
+    solution_flow: Optional[dict[str, Any]] = None
+    match_recommendations: Optional[dict[str, Any]] = None
 
 
 class JobUpdate(BaseModel):
     status: Optional[JobStatus] = None
     helper_id: Optional[str] = None
+
+
+class ProblemAnalyzeRequest(BaseModel):
+    title: Optional[str] = None
+    description: str
+    category: Optional[str] = None
+    budget: Optional[float] = None
+    location: Optional[Location] = None
+
+
+class JobOfferCreate(BaseModel):
+    quote: float = Field(gt=0)
+    message: str
+    timeline: str
+    availability: str
+    provider_type: Optional[str] = "expert"
+
+
+class BookingPaymentCreate(BaseModel):
+    provider: Optional[str] = "demo"
+
+
+class ReferralCreate(BaseModel):
+    invitee_contact: Optional[str] = None
+    community_id: Optional[str] = None
+    message: Optional[str] = None
 
 
 class MessageCreate(BaseModel):
@@ -166,6 +238,11 @@ class ReviewCreate(BaseModel):
     helper_id: str
     rating: int = Field(ge=1, le=5)
     comment: str
+    quality: Optional[int] = Field(default=None, ge=1, le=5)
+    speed: Optional[int] = Field(default=None, ge=1, le=5)
+    price_fairness: Optional[int] = Field(default=None, ge=1, le=5)
+    communication: Optional[int] = Field(default=None, ge=1, le=5)
+    solved: Optional[bool] = True
 
 
 def hash_password(password: str) -> str:
@@ -181,6 +258,128 @@ def create_access_token(data: dict):
     expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+
+def generate_email_verification_code() -> str:
+    return f"{random.randint(0, 999999):06d}"
+
+
+def hash_email_verification_code(email: str, code: str) -> str:
+    normalized_email = email.strip().lower()
+    normalized_code = code.strip()
+    return hashlib.sha256(f"{normalized_email}:{normalized_code}:{SECRET_KEY}".encode("utf-8")).hexdigest()
+
+
+def get_email_verification_codes_collection():
+    return db.email_verification_codes
+
+
+async def store_signup_verification_code(email: str, code: str):
+    normalized_email = email.strip().lower()
+    collection = get_email_verification_codes_collection()
+    expires_at = datetime.utcnow() + timedelta(minutes=EMAIL_VERIFICATION_CODE_TTL_MINUTES)
+
+    await collection.delete_one({"email": normalized_email, "purpose": "signup", "used": False})
+    await collection.insert_one(
+        {
+            "email": normalized_email,
+            "purpose": "signup",
+            "code_hash": hash_email_verification_code(normalized_email, code),
+            "used": False,
+            "created_at": datetime.utcnow(),
+            "expires_at": expires_at,
+        }
+    )
+
+
+async def consume_signup_verification_code(email: str, code: str):
+    normalized_email = email.strip().lower()
+    collection = get_email_verification_codes_collection()
+    record = await collection.find_one(
+        {"email": normalized_email, "purpose": "signup", "used": False},
+        sort=[("created_at", -1)],
+    )
+
+    if not record:
+        raise HTTPException(status_code=400, detail="Email verification code not requested")
+
+    if record["expires_at"] < datetime.utcnow():
+        raise HTTPException(status_code=400, detail="Email verification code expired")
+
+    if record["code_hash"] != hash_email_verification_code(normalized_email, code):
+        raise HTTPException(status_code=400, detail="Invalid email verification code")
+
+    await collection.update_one(
+        {"_id": record["_id"]},
+        {"$set": {"used": True, "used_at": datetime.utcnow()}},
+    )
+
+
+def _send_email_message(message: EmailMessage):
+    if not SMTP_HOST or not SMTP_FROM_EMAIL:
+        raise RuntimeError("SMTP is not configured")
+
+    if SMTP_USE_SSL:
+        context = ssl.create_default_context()
+        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, context=context, timeout=SMTP_TIMEOUT_SECONDS) as smtp:
+            if SMTP_USERNAME:
+                smtp.login(SMTP_USERNAME, SMTP_PASSWORD or "")
+            smtp.send_message(message)
+        return
+
+    with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=SMTP_TIMEOUT_SECONDS) as smtp:
+        if SMTP_USE_TLS:
+            context = ssl.create_default_context()
+            smtp.starttls(context=context)
+        if SMTP_USERNAME:
+            smtp.login(SMTP_USERNAME, SMTP_PASSWORD or "")
+        smtp.send_message(message)
+
+
+async def send_signup_verification_email(email: str, code: str):
+    if RESEND_API_KEY:
+        await send_signup_verification_email_with_resend(email, code)
+        return
+
+    message = EmailMessage()
+    message["Subject"] = "Your SolveConnect verification code"
+    message["From"] = SMTP_FROM_EMAIL or "no-reply@solveconnect.net"
+    message["To"] = email
+    message.set_content(
+        (
+            "Your SolveConnect verification code is "
+            f"{code}. It expires in {EMAIL_VERIFICATION_CODE_TTL_MINUTES} minutes."
+        )
+    )
+
+    await asyncio.to_thread(_send_email_message, message)
+
+
+async def send_signup_verification_email_with_resend(email: str, code: str):
+    if not SMTP_FROM_EMAIL:
+        raise RuntimeError("SMTP_FROM_EMAIL is required when using Resend")
+
+    payload = {
+        "from": SMTP_FROM_EMAIL,
+        "to": [email],
+        "subject": "Your SolveConnect verification code",
+        "text": (
+            "Your SolveConnect verification code is "
+            f"{code}. It expires in {EMAIL_VERIFICATION_CODE_TTL_MINUTES} minutes."
+        ),
+    }
+
+    timeout = httpx.Timeout(SMTP_TIMEOUT_SECONDS)
+    headers = {
+        "Authorization": f"Bearer {RESEND_API_KEY}",
+        "Content-Type": "application/json",
+    }
+
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        response = await client.post(RESEND_API_URL, headers=headers, json=payload)
+
+    if response.status_code >= 400:
+        raise RuntimeError(f"Resend API error {response.status_code}: {response.text}")
 
 
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
@@ -346,6 +545,36 @@ def serialize_payment(payment: dict) -> dict:
     return payment
 
 
+def serialize_offer(offer: dict) -> dict:
+    offer["_id"] = str(offer["_id"])
+    offer["job_id"] = str(offer["job_id"])
+    offer["provider_id"] = str(offer["provider_id"])
+    offer["user_id"] = str(offer["user_id"])
+    return offer
+
+
+def serialize_booking(booking: dict) -> dict:
+    booking["_id"] = str(booking["_id"])
+    booking["job_id"] = str(booking["job_id"])
+    booking["offer_id"] = str(booking["offer_id"])
+    booking["user_id"] = str(booking["user_id"])
+    booking["provider_id"] = str(booking["provider_id"])
+    return booking
+
+
+def serialize_community(community: dict) -> dict:
+    community["_id"] = str(community["_id"])
+    return community
+
+
+def serialize_referral(referral: dict) -> dict:
+    referral["_id"] = str(referral["_id"])
+    referral["user_id"] = str(referral["user_id"])
+    if referral.get("community_id"):
+        referral["community_id"] = str(referral["community_id"])
+    return referral
+
+
 def serialize_notification(notification: dict) -> dict:
     notification["_id"] = str(notification["_id"])
     notification["user_id"] = str(notification["user_id"])
@@ -377,3 +606,8 @@ def validate_checkout_redirect_base(redirect_uri: Optional[str] = None) -> str:
         return candidate.rstrip("/")
 
     raise HTTPException(status_code=400, detail="Unsupported checkout redirect URI")
+
+
+def get_google_client_ids() -> set:
+    raw_client_ids = os.environ.get("GOOGLE_CLIENT_IDS", "")
+    return {client_id.strip() for client_id in raw_client_ids.split(",") if client_id.strip()}

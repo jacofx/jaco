@@ -1,6 +1,10 @@
-# Category Tile Assets
+# Category Image Archive
 
-Add square image assets here for the home-screen category tiles.
+These files are not bundled or rendered by the current frontend. The marketplace uses the lightweight icon catalog in `constants/categories.ts` so the home and search screens load quickly on mobile networks.
+
+Do not ship the existing images without a licensing and quality review. Some legacy files contain visible stock-site marks or baked backgrounds and are not production-safe.
+
+When approved replacement photography is available, optimize each image to an appropriate display size, document its source and usage rights, and load it lazily with `expo-image` instead of statically requiring the entire folder.
 
 Expected filenames:
 
@@ -29,5 +33,3 @@ Expected filenames:
 - `laundry.png`
 - `dj.png`
 - `dispatch.png`
-
-Once the files exist, wire them in `frontend/app/(tabs)/index.tsx` by populating `CATEGORY_IMAGES`.

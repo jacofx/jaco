@@ -6,9 +6,13 @@ from starlette.middleware.cors import CORSMiddleware
 
 import core
 import routes.ads  # noqa: F401
+import routes.ai  # noqa: F401
 import routes.auth  # noqa: F401
+import routes.bookings  # noqa: F401
+import routes.communities  # noqa: F401
 import routes.jobs  # noqa: F401
 import routes.messages  # noqa: F401
+import routes.offers  # noqa: F401
 import routes.reviews  # noqa: F401
 import routes.users  # noqa: F401
 import socket_events  # noqa: F401

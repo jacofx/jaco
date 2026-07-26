@@ -1,662 +1,371 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  ScrollView,
   RefreshControl,
-  Alert,
-  ImageBackground,
-  ImageSourcePropType,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  useWindowDimensions,
+  View,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { useAuthStore } from '../../store/authStore';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import { AppButton, BrandMark, EmptyState, LoadingState, StatusBadge } from '../../components/ui';
+import { SERVICE_CATEGORIES, colors, layout, radius, shadows, spacing, typography } from '../../constants';
 import { getJobPromotion, jobAPI } from '../../services/api';
-import * as Location from 'expo-location';
+import { getApiErrorMessage } from '../../services/error';
+import { useAuthStore } from '../../store/authStore';
 
-const CATEGORIES = [
-  { id: 'electrician', name: 'Electrician', icon: 'flash', accent: '#FACC15', surface: '#FEF3C7', ink: '#92400E', ornament: 'flash-outline', backgroundIcon: 'transmission-tower' },
-  { id: 'plumber', name: 'Plumber', icon: 'water', accent: '#38BDF8', surface: '#E0F2FE', ink: '#0C4A6E', ornament: 'build-outline', backgroundIcon: 'pipe-wrench' },
-  { id: 'generator-tech', name: 'Generator Tech', icon: 'hardware-chip', accent: '#A78BFA', surface: '#EDE9FE', ink: '#4C1D95', ornament: 'flash-outline', backgroundIcon: 'generator-portable' },
-  { id: 'tailor', name: 'Tailor/Fashion', icon: 'shirt', accent: '#F472B6', surface: '#FCE7F3', ink: '#9D174D', ornament: 'cut-outline', backgroundIcon: 'sewing-machine' },
-  { id: 'hairdresser', name: 'Hairdresser', icon: 'cut', accent: '#FB7185', surface: '#FFE4E6', ink: '#9F1239', ornament: 'sparkles-outline', backgroundIcon: 'hair-dryer' },
-  { id: 'mechanic', name: 'Mechanic', icon: 'car', accent: '#F97316', surface: '#FFEDD5', ink: '#9A3412', ornament: 'cog-outline', backgroundIcon: 'car-wrench' },
-  { id: 'ac-tech', name: 'AC Technician', icon: 'snow', accent: '#60A5FA', surface: '#DBEAFE', ink: '#1D4ED8', ornament: 'snow-outline', backgroundIcon: 'air-conditioner' },
-  { id: 'phone-repair', name: 'Phone Repair', icon: 'phone-portrait', accent: '#22C55E', surface: '#DCFCE7', ink: '#166534', ornament: 'construct-outline', backgroundIcon: 'cellphone-cog' },
-  { id: 'caterer', name: 'Caterer', icon: 'restaurant', accent: '#F59E0B', surface: '#FEF3C7', ink: '#92400E', ornament: 'wine-outline', backgroundIcon: 'silverware-fork-knife' },
-  { id: 'event-planner', name: 'Event Planner', icon: 'calendar', accent: '#8B5CF6', surface: '#F3E8FF', ink: '#6B21A8', ornament: 'balloon-outline', backgroundIcon: 'calendar-star' },
-  { id: 'event-ticket-sales', name: 'Event Ticket Sales', icon: 'ticket', accent: '#F43F5E', surface: '#FFE4E6', ink: '#9F1239', ornament: 'pricetag-outline', backgroundIcon: 'ticket-confirmation' },
-  { id: 'photographer', name: 'Photographer', icon: 'camera', accent: '#0EA5E9', surface: '#E0F2FE', ink: '#075985', ornament: 'aperture-outline', backgroundIcon: 'camera-iris' },
-  { id: 'makeup-artist', name: 'Makeup Artist', icon: 'color-palette', accent: '#EC4899', surface: '#FCE7F3', ink: '#9D174D', ornament: 'flower-outline', backgroundIcon: 'lipstick' },
-  { id: 'driver', name: 'Driver', icon: 'car-sport', accent: '#14B8A6', surface: '#CCFBF1', ink: '#115E59', ornament: 'navigate-outline', backgroundIcon: 'steering' },
-  { id: 'cleaner', name: 'Cleaner', icon: 'sparkles', accent: '#2DD4BF', surface: '#CCFBF1', ink: '#115E59', ornament: 'water-outline', backgroundIcon: 'spray-bottle' },
-  { id: 'bricklayer', name: 'Bricklayer', icon: 'cube', accent: '#B45309', surface: '#FDE68A', ink: '#78350F', ornament: 'apps-outline', backgroundIcon: 'wall' },
-  { id: 'carpenter', name: 'Carpenter', icon: 'hammer', accent: '#D97706', surface: '#FED7AA', ink: '#7C2D12', ornament: 'square-outline', backgroundIcon: 'hammer-screwdriver' },
-  { id: 'painter', name: 'Painter', icon: 'brush', accent: '#8B5CF6', surface: '#EDE9FE', ink: '#5B21B6', ornament: 'color-fill-outline', backgroundIcon: 'format-paint' },
-  { id: 'welder', name: 'Welder', icon: 'flame', accent: '#EF4444', surface: '#FEE2E2', ink: '#991B1B', ornament: 'flash-outline', backgroundIcon: 'welding-torch' },
-  { id: 'tiler', name: 'Tiler', icon: 'grid', accent: '#0F766E', surface: '#CCFBF1', ink: '#134E4A', ornament: 'grid-outline', backgroundIcon: 'grid-large' },
-  { id: 'tutor', name: 'Tutor', icon: 'school', accent: '#2563EB', surface: '#DBEAFE', ink: '#1E3A8A', ornament: 'book-outline', backgroundIcon: 'book-education' },
-  { id: 'security', name: 'Security Guard', icon: 'shield-checkmark', accent: '#475569', surface: '#E2E8F0', ink: '#1E293B', ornament: 'lock-closed-outline', backgroundIcon: 'shield-account' },
-  { id: 'laundry', name: 'Laundry Service', icon: 'water', accent: '#06B6D4', surface: '#CFFAFE', ink: '#155E75', ornament: 'shirt-outline', backgroundIcon: 'washing-machine' },
-  { id: 'dj', name: 'DJ', icon: 'musical-notes', accent: '#7C3AED', surface: '#EDE9FE', ink: '#4C1D95', ornament: 'disc-outline', backgroundIcon: 'disc-player' },
-  { id: 'dispatch', name: 'Dispatch Rider', icon: 'bicycle', accent: '#16A34A', surface: '#DCFCE7', ink: '#166534', ornament: 'speedometer-outline', backgroundIcon: 'bike-fast' },
-];
-
-const CATEGORY_IMAGES: Partial<Record<string, ImageSourcePropType>> = {
-  electrician: require('../../assets/categories/electrician.png'),
-  plumber: require('../../assets/categories/plumber.png'),
-  'generator-tech': require('../../assets/categories/generator-tech.png'),
-  tailor: require('../../assets/categories/tailor.png'),
-  hairdresser: require('../../assets/categories/hairdresser.png'),
-  mechanic: require('../../assets/categories/mechanic.png'),
-  'ac-tech': require('../../assets/categories/ac-tech.png'),
-  'phone-repair': require('../../assets/categories/phone-repair.png'),
-  caterer: require('../../assets/categories/caterer.png'),
-  'event-planner': require('../../assets/categories/event-planner.png'),
-  'event-ticket-sales': require('../../assets/categories/event-ticket-sales.png'),
-  photographer: require('../../assets/categories/photographer.png'),
-  'makeup-artist': require('../../assets/categories/makeup-artist.png'),
-  driver: require('../../assets/categories/driver.png'),
-  cleaner: require('../../assets/categories/cleaner.png'),
-  bricklayer: require('../../assets/categories/bricklayer.png'),
-  carpenter: require('../../assets/categories/carpenter.png'),
-  painter: require('../../assets/categories/painter.png'),
-  welder: require('../../assets/categories/welder.png'),
-  tiler: require('../../assets/categories/tiler.png'),
-  tutor: require('../../assets/categories/tutor.png'),
-  security: require('../../assets/categories/security.png'),
-  laundry: require('../../assets/categories/laundry.png'),
-  dj: require('../../assets/categories/dj.png'),
-  dispatch: require('../../assets/categories/dispatch.png'),
+type Job = {
+  _id: string;
+  title?: string;
+  description?: string;
+  budget?: number | string;
+  category?: string;
+  status?: string;
+  distance?: number;
+  created_at?: string;
+  [key: string]: any;
 };
+
+const FEATURED_CATEGORIES = SERVICE_CATEGORIES.slice(0, 8);
 
 export default function HomeScreen() {
   const router = useRouter();
+  const { width } = useWindowDimensions();
   const { user } = useAuthStore();
-  const [nearbyJobs, setNearbyJobs] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [location, setLocation] = useState<any>(null);
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const isHelper = user?.role === 'helper';
+  const isWide = width >= 760;
+  const firstName = user?.name?.trim().split(/\s+/)[0] || 'there';
 
-  const loadNearbyJobs = useCallback(async (coords?: any) => {
-    if (user?.role !== 'helper') return;
-    
+  const loadDashboard = useCallback(async () => {
     setLoading(true);
+    setError(null);
+
     try {
-      const params: any = { status: 'posted' };
-      if (coords || location) {
-        const { latitude, longitude } = coords || location;
-        params.lat = latitude;
-        params.lng = longitude;
-      }
-      
-      const response = await jobAPI.getJobs(params);
-      setNearbyJobs(response.data.slice(0, 5));
-    } catch (error) {
-      console.error('Error loading jobs:', error);
+      const response = isHelper
+        ? await jobAPI.getJobs({ status: 'posted' })
+        : await jobAPI.getMyPostedJobs();
+      const data = Array.isArray(response.data) ? response.data : [];
+      setJobs(data.slice(0, 4));
+    } catch (loadError) {
+      setJobs([]);
+      setError(getApiErrorMessage(loadError, 'We could not update your activity right now.'));
     } finally {
       setLoading(false);
     }
-  }, [location, user?.role]);
+  }, [isHelper]);
 
-  const loadLocation = useCallback(async () => {
-    try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permission Denied', 'Location permission is required to show nearby jobs');
-        return;
-      }
-
-      const loc = await Location.getCurrentPositionAsync({});
-      setLocation(loc.coords);
-      loadNearbyJobs(loc.coords);
-    } catch (error) {
-      console.error('Error getting location:', error);
-    }
-  }, [loadNearbyJobs]);
-
-  useEffect(() => {
-    loadLocation();
-  }, [loadLocation]);
-
-  const onRefresh = () => {
-    loadLocation();
-  };
-
-  const renderCategoryArtwork = (category: typeof CATEGORIES[number]) => {
-    const imageSource = CATEGORY_IMAGES[category.id];
-
-    if (imageSource) {
-      return (
-        <ImageBackground
-          source={imageSource}
-          style={styles.categoryArtwork}
-          imageStyle={styles.categoryArtworkImage}
-        >
-          <View style={styles.categoryArtworkOverlay} />
-          <View style={styles.categoryLabelOverlay}>
-            <Text style={styles.categoryName}>{category.name}</Text>
-          </View>
-        </ImageBackground>
-      );
-    }
-
-    return (
-      <View style={styles.categoryArtwork}>
-        <MaterialCommunityIcons
-          name={category.backgroundIcon as any}
-          size={64}
-          color={category.ink}
-          style={styles.categoryBackgroundIcon}
-        />
-        <View
-          style={[
-            styles.categoryGlow,
-            { backgroundColor: category.accent },
-          ]}
-        />
-        <View
-          style={[
-            styles.categoryOrbit,
-            { borderColor: category.ink },
-          ]}
-        />
-        <View
-          style={[
-            styles.categoryIconWrap,
-            { backgroundColor: category.accent },
-          ]}
-        >
-          <Ionicons name={category.icon as any} size={28} color="#fff" />
-        </View>
-        <View
-          style={[
-            styles.categoryMiniBadge,
-            { backgroundColor: '#fff' },
-          ]}
-        >
-          <Ionicons name={category.ornament as any} size={14} color={category.ink} />
-        </View>
-        <View style={styles.categoryLabelOverlay}>
-          <Text style={styles.categoryName}>{category.name}</Text>
-        </View>
-      </View>
-    );
-  };
+  useFocusEffect(
+    useCallback(() => {
+      void loadDashboard();
+    }, [loadDashboard]),
+  );
 
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView
         contentContainerStyle={styles.scrollContent}
-        refreshControl={<RefreshControl refreshing={loading} onRefresh={onRefresh} />}
+        refreshControl={<RefreshControl refreshing={loading && jobs.length > 0} onRefresh={loadDashboard} tintColor={colors.primary} colors={[colors.primary]} />}
+        showsVerticalScrollIndicator={false}
       >
-        <View style={styles.header}>
-          <Text style={styles.greeting}>Hello, {user?.name}!</Text>
-          <Text style={styles.subtitle}>
-            {user?.role === 'helper' ? 'Find jobs near you' : 'Get help from nearby helpers'}
-          </Text>
-        </View>
-
-        {user?.role === 'need_help' ? (
-          <View style={styles.marketingCard}>
-            <View style={styles.marketingBadge}>
-              <Ionicons name="star" size={14} color="#111827" />
-              <Text style={styles.marketingBadgeText}>Ad subscription</Text>
-            </View>
-            <Text style={styles.marketingTitle}>Push your request above regular listings</Text>
-            <Text style={styles.marketingText}>
-              Boosted and top ads stay pinned longer, carry urgent labels, and get faster helper attention.
-            </Text>
-            <View style={styles.marketingStats}>
-              <View style={styles.marketingStat}>
-                <Text style={styles.marketingStatValue}>7 days</Text>
-                <Text style={styles.marketingStatLabel}>Boost cycle</Text>
-              </View>
-              <View style={styles.marketingStat}>
-                <Text style={styles.marketingStatValue}>Top slot</Text>
-                <Text style={styles.marketingStatLabel}>Premium placement</Text>
-              </View>
-              <View style={styles.marketingStat}>
-                <Text style={styles.marketingStatValue}>Urgent tag</Text>
-                <Text style={styles.marketingStatLabel}>More visibility</Text>
-              </View>
-            </View>
-          </View>
-        ) : (
-          <View style={styles.helperSubscriptionCard}>
-            <View>
-              <Text style={styles.helperSubscriptionLabel}>Seller tools</Text>
-              <Text style={styles.helperSubscriptionTitle}>Weekly visibility plan</Text>
-            </View>
-            <Text style={styles.helperSubscriptionText}>
-              Stay first in line for promoted requests and track boosted jobs near you.
-            </Text>
-          </View>
-        )}
-
-        {user?.role === 'need_help' && (
-          <TouchableOpacity
-            style={styles.postButton}
-            onPress={() => router.push('/post-problem')}
-          >
-            <Ionicons name="add-circle-outline" size={24} color="#fff" />
-            <Text style={styles.postButtonText}>Post a Problem</Text>
-          </TouchableOpacity>
-        )}
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Categories</Text>
-          <View style={styles.categoriesGrid}>
-            {CATEGORIES.map((category) => (
+        <View style={styles.pageFrame}>
+          <View style={styles.topBar}>
+            <BrandMark size="small" />
+            <View style={styles.topActions}>
               <TouchableOpacity
-                key={category.id}
-                style={[styles.categoryCard, { backgroundColor: category.surface }]}
-                onPress={() => router.push(`/(tabs)/helpers?category=${category.id}`)}
+                style={styles.iconButton}
+                onPress={() => router.push('/(tabs)/notifications')}
+                accessibilityRole="button"
+                accessibilityLabel="Open notifications"
               >
-                {renderCategoryArtwork(category)}
+                <Ionicons name="notifications-outline" size={22} color={colors.ink} />
               </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-
-        {user?.role === 'helper' && nearbyJobs.length > 0 && (
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Nearby Jobs</Text>
-              <TouchableOpacity onPress={() => router.push('/(tabs)/requests')}>
-                <Text style={styles.seeAll}>See All</Text>
+              <TouchableOpacity
+                style={styles.profileButton}
+                onPress={() => router.push('/(tabs)/profile')}
+                accessibilityRole="button"
+                accessibilityLabel="Open profile"
+              >
+                <Text style={styles.profileInitial}>{firstName.charAt(0).toUpperCase()}</Text>
               </TouchableOpacity>
             </View>
-            {nearbyJobs.map((job) => (
-              (() => {
-                const promotion = getJobPromotion(job);
-
-                return (
-                  <TouchableOpacity
-                    key={job._id}
-                    style={[
-                      styles.jobCard,
-                      promotion?.id === 'top' && styles.jobCardTop,
-                      promotion?.id === 'boost' && styles.jobCardBoost,
-                    ]}
-                    onPress={() => router.push(`/job/${job._id}`)}
-                  >
-                    <View style={styles.jobHeader}>
-                      <Text style={styles.jobTitle}>{job.title}</Text>
-                      {job.distance && (
-                        <View style={styles.distanceBadge}>
-                          <Ionicons name="location-outline" size={14} color="#666" />
-                          <Text style={styles.distanceText}>{job.distance} km</Text>
-                        </View>
-                      )}
-                    </View>
-                    {promotion && promotion.id !== 'free' && (
-                      <View
-                        style={[
-                          styles.jobPromotionBadge,
-                          promotion.id === 'top' ? styles.jobPromotionBadgeTop : styles.jobPromotionBadgeBoost,
-                        ]}
-                      >
-                        <Ionicons
-                          name={promotion.id === 'top' ? 'flash' : 'trending-up'}
-                          size={14}
-                          color="#111827"
-                        />
-                        <Text style={styles.jobPromotionText}>{promotion.label}</Text>
-                      </View>
-                    )}
-                    <Text style={styles.jobDescription} numberOfLines={2}>
-                      {job.description}
-                    </Text>
-                    <View style={styles.jobFooter}>
-                      <Text style={styles.jobBudget}>₦{job.budget}</Text>
-                      <Text style={styles.jobCategory}>{job.category}</Text>
-                    </View>
-                  </TouchableOpacity>
-                );
-              })()
-            ))}
           </View>
-        )}
 
-        {user?.role === 'need_help' && (
-          <View style={styles.infoBox}>
-            <Ionicons name="information-circle-outline" size={24} color="#666" />
-            <Text style={styles.infoText}>
-              Post your problem and get help from skilled helpers nearby.
+          <View style={styles.greetingBlock}>
+            <Text style={styles.eyebrow}>{isHelper ? 'PROVIDER WORKSPACE' : 'WELCOME BACK'}</Text>
+            <Text style={styles.greeting} accessibilityRole="header">Good to see you, {firstName}</Text>
+            <Text style={styles.greetingText}>
+              {isHelper
+                ? 'Review new requests, respond with a clear offer, and keep your accepted work organized.'
+                : 'Start a request, compare responses, or find a provider for what needs to get done.'}
             </Text>
           </View>
-        )}
+
+          <View style={[styles.actionHero, isWide && styles.actionHeroWide]}>
+            <View style={styles.actionHeroCopy}>
+              <View style={styles.heroIcon}>
+                <Ionicons name={isHelper ? 'briefcase-outline' : 'sparkles-outline'} size={24} color={colors.ink} />
+              </View>
+              <Text style={styles.actionHeroTitle}>
+                {isHelper ? 'Find work that matches what you do' : 'What can SolveConnect help you move forward today?'}
+              </Text>
+              <Text style={styles.actionHeroText}>
+                {isHelper
+                  ? 'Open requests are ready to review. Send an offer only when the scope, timing, and price make sense.'
+                  : 'Describe the outcome in your own words. Providers can review the request and respond with an offer.'}
+              </Text>
+            </View>
+            <View style={[styles.heroActions, isWide && styles.heroActionsWide]}>
+              <AppButton
+                label={isHelper ? 'Browse open work' : 'Request help'}
+                icon={isHelper ? 'search-outline' : 'add-circle-outline'}
+                variant="secondary"
+                fullWidth={!isWide}
+                onPress={() => router.push(isHelper ? '/(tabs)/requests' : '/post-problem')}
+              />
+              <AppButton
+                label={isHelper ? 'Improve profile' : 'Find a provider'}
+                icon={isHelper ? 'person-outline' : 'people-outline'}
+                variant="outline"
+                fullWidth={!isWide}
+                onPress={() => router.push(isHelper ? '/edit-profile' : '/(tabs)/helpers')}
+              />
+            </View>
+          </View>
+
+          {!isHelper ? (
+            <View style={styles.processStrip}>
+              {[
+                { icon: 'create-outline', label: 'Describe the need' },
+                { icon: 'git-compare-outline', label: 'Compare offers' },
+                { icon: 'checkmark-done-outline', label: 'Connect and track' },
+              ].map((step, index) => (
+                <React.Fragment key={step.label}>
+                  <View style={styles.processStep}>
+                    <View style={styles.processIcon}>
+                      <Ionicons name={step.icon as keyof typeof Ionicons.glyphMap} size={18} color={colors.primary} />
+                    </View>
+                    <Text style={styles.processText}>{step.label}</Text>
+                  </View>
+                  {index < 2 ? <Ionicons name="chevron-forward" size={16} color={colors.borderStrong} /> : null}
+                </React.Fragment>
+              ))}
+            </View>
+          ) : null}
+
+          <View style={styles.section}>
+            <View style={styles.sectionHeading}>
+              <View style={styles.sectionHeadingCopy}>
+                <Text style={styles.sectionTitle}>{isHelper ? 'Open opportunities' : 'Your recent requests'}</Text>
+                <Text style={styles.sectionSubtitle}>{isHelper ? 'A preview of requests currently accepting responses.' : 'Follow responses and progress from one place.'}</Text>
+              </View>
+              <TouchableOpacity
+                style={styles.textButton}
+                onPress={() => router.push('/(tabs)/requests')}
+                accessibilityRole="button"
+                accessibilityLabel={isHelper ? 'View all open work' : 'View all requests'}
+              >
+                <Text style={styles.textButtonLabel}>View all</Text>
+                <Ionicons name="arrow-forward" size={17} color={colors.primary} />
+              </TouchableOpacity>
+            </View>
+
+            {loading && jobs.length === 0 ? (
+              <LoadingState label={isHelper ? 'Finding open requests...' : 'Updating your requests...'} />
+            ) : error ? (
+              <View style={styles.inlineState}>
+                <Ionicons name="cloud-offline-outline" size={22} color={colors.danger} />
+                <View style={styles.inlineStateCopy}>
+                  <Text style={styles.inlineStateTitle}>Activity is temporarily unavailable</Text>
+                  <Text style={styles.inlineStateText}>{error}</Text>
+                </View>
+                <TouchableOpacity style={styles.retryIconButton} onPress={loadDashboard} accessibilityRole="button" accessibilityLabel="Retry activity">
+                  <Ionicons name="refresh" size={20} color={colors.primary} />
+                </TouchableOpacity>
+              </View>
+            ) : jobs.length === 0 ? (
+              <EmptyState
+                compact
+                icon={isHelper ? 'briefcase-outline' : 'document-text-outline'}
+                title={isHelper ? 'No open requests right now' : 'Your first request starts here'}
+                description={isHelper ? 'Pull to refresh or check again as customers post new needs.' : 'Tell us what you need and providers can respond with an offer.'}
+                actionLabel={isHelper ? 'Refresh' : 'Request help'}
+                onAction={isHelper ? loadDashboard : () => router.push('/post-problem')}
+              />
+            ) : (
+              <View style={[styles.jobsGrid, isWide && styles.jobsGridWide]}>
+                {jobs.map((job) => <JobPreview key={job._id} job={job} onPress={() => router.push(`/job/${job._id}`)} wide={isWide} />)}
+              </View>
+            )}
+          </View>
+
+          <View style={styles.section}>
+            <View style={styles.sectionHeading}>
+              <View style={styles.sectionHeadingCopy}>
+                <Text style={styles.sectionTitle}>Explore services</Text>
+                <Text style={styles.sectionSubtitle}>Browse people and businesses by the kind of support you need.</Text>
+              </View>
+              <TouchableOpacity style={styles.textButton} onPress={() => router.push('/(tabs)/helpers')}>
+                <Text style={styles.textButtonLabel}>All services</Text>
+                <Ionicons name="arrow-forward" size={17} color={colors.primary} />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.categoriesGrid}>
+              {FEATURED_CATEGORIES.map((category) => (
+                <TouchableOpacity
+                  key={category.id}
+                  style={[styles.categoryCard, isWide ? styles.categoryCardWide : styles.categoryCardMobile]}
+                  onPress={() => router.push(`/(tabs)/helpers?category=${category.id}`)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Find ${category.label}`}
+                  activeOpacity={0.78}
+                >
+                  <View style={styles.categoryIcon}>
+                    <Ionicons name={category.icon as keyof typeof Ionicons.glyphMap} size={22} color={colors.primary} />
+                  </View>
+                  <Text style={styles.categoryLabel} numberOfLines={2}>{category.shortLabel}</Text>
+                  <Ionicons name="arrow-forward" size={16} color={colors.borderStrong} />
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+
+          <View style={[styles.connectionBand, isWide && styles.connectionBandWide]}>
+            <View style={styles.connectionIcon}>
+              <Ionicons name="people-outline" size={25} color={colors.info} />
+            </View>
+            <View style={styles.connectionCopy}>
+              <Text style={styles.connectionEyebrow}>BEYOND THE REQUEST</Text>
+              <Text style={styles.connectionTitle}>Join conversations that strengthen local connections</Text>
+              <Text style={styles.connectionText}>Discover community chapters, share useful recommendations, and learn with people around you.</Text>
+            </View>
+            <AppButton label="Explore community" variant="outline" icon="arrow-forward" iconPosition="right" onPress={() => router.push('/(tabs)/community')} fullWidth={!isWide} />
+          </View>
+
+          <View style={styles.supportRow}>
+            <View style={styles.supportCopy}>
+              <Ionicons name="shield-checkmark-outline" size={20} color={colors.primary} />
+              <Text style={styles.supportText}>Keep quotes, messages, and job progress on SolveConnect so each step stays easier to review.</Text>
+            </View>
+            <TouchableOpacity style={styles.supportAction} onPress={() => router.push('/help-support')} accessibilityRole="button">
+              <Text style={styles.supportActionText}>Get support</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
       </ScrollView>
     </SafeAreaView>
   );
 }
 
+function JobPreview({ job, onPress, wide }: { job: Job; onPress: () => void; wide: boolean }) {
+  const promotion = getJobPromotion(job);
+  const status = formatLabel(job.status || 'posted');
+
+  return (
+    <TouchableOpacity
+      style={[styles.jobCard, wide && styles.jobCardWide]}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`${job.title || 'Service request'}, ${formatBudget(job.budget)}`}
+      activeOpacity={0.8}
+    >
+      <View style={styles.jobTopRow}>
+        <Text style={styles.jobCategory}>{formatLabel(job.category || 'General help')}</Text>
+        <StatusBadge label={status} tone={job.status === 'completed' ? 'success' : job.status === 'in_progress' ? 'info' : 'neutral'} compact />
+      </View>
+      {promotion && promotion.id !== 'free' ? <StatusBadge label={promotion.label} tone="warning" icon={promotion.id === 'top' ? 'flash' : 'trending-up'} compact /> : null}
+      <Text style={styles.jobTitle} numberOfLines={2}>{job.title || 'Untitled request'}</Text>
+      <Text style={styles.jobDescription} numberOfLines={2}>{job.description || 'Open the request to review the full details.'}</Text>
+      <View style={styles.jobBottomRow}>
+        <Text style={styles.jobBudget}>{formatBudget(job.budget)}</Text>
+        <View style={styles.jobAction}>
+          <Text style={styles.jobActionText}>Open</Text>
+          <Ionicons name="arrow-forward" size={16} color={colors.primary} />
+        </View>
+      </View>
+    </TouchableOpacity>
+  );
+}
+
+function formatBudget(value?: number | string) {
+  const amount = Number(value);
+  return Number.isFinite(amount) ? `₦${amount.toLocaleString()}` : 'Budget not set';
+}
+
+function formatLabel(value: string) {
+  return value.split('-').map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+}
+
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#fff',
-  },
-  scrollContent: {
-    padding: 16,
-  },
-  header: {
-    marginBottom: 24,
-  },
-  greeting: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#000',
-    marginBottom: 4,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: '#666',
-  },
-  marketingCard: {
-    backgroundColor: '#111827',
-    borderRadius: 22,
-    padding: 18,
-    gap: 12,
-    marginBottom: 20,
-  },
-  marketingBadge: {
-    alignSelf: 'flex-start',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: '#FDE68A',
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  marketingBadgeText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#111827',
-    textTransform: 'uppercase',
-  },
-  marketingTitle: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#fff',
-  },
-  marketingText: {
-    fontSize: 14,
-    lineHeight: 20,
-    color: '#D1D5DB',
-  },
-  marketingStats: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  marketingStat: {
-    flex: 1,
-    backgroundColor: '#1F2937',
-    borderRadius: 16,
-    padding: 12,
-    gap: 4,
-  },
-  marketingStatValue: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#fff',
-  },
-  marketingStatLabel: {
-    fontSize: 12,
-    color: '#9CA3AF',
-  },
-  helperSubscriptionCard: {
-    backgroundColor: '#FFF7ED',
-    borderRadius: 22,
-    padding: 18,
-    gap: 8,
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: '#FED7AA',
-  },
-  helperSubscriptionLabel: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#C2410C',
-    textTransform: 'uppercase',
-  },
-  helperSubscriptionTitle: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: '#7C2D12',
-  },
-  helperSubscriptionText: {
-    fontSize: 14,
-    lineHeight: 20,
-    color: '#9A3412',
-  },
-  postButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#111827',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 24,
-    gap: 8,
-  },
-  postButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  section: {
-    marginBottom: 24,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#000',
-    marginBottom: 16,
-  },
-  seeAll: {
-    fontSize: 14,
-    color: '#666',
-    fontWeight: '600',
-  },
-  categoriesGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  categoryCard: {
-    width: '32%',
-    borderRadius: 18,
-    justifyContent: 'flex-start',
-    padding: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(15, 23, 42, 0.08)',
-    overflow: 'hidden',
-  },
-  categoryArtwork: {
-    width: '100%',
-    height: 94,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255,255,255,0.46)',
-    overflow: 'hidden',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  categoryArtworkImage: {
-    borderRadius: 16,
-  },
-  categoryArtworkOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(15, 23, 42, 0.10)',
-    borderRadius: 16,
-  },
-  categoryLabelOverlay: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    paddingHorizontal: 8,
-    paddingTop: 16,
-    paddingBottom: 8,
-    backgroundColor: 'rgba(15, 23, 42, 0.28)',
-  },
-  categoryGlow: {
-    position: 'absolute',
-    width: 88,
-    height: 88,
-    borderRadius: 44,
-    opacity: 0.18,
-    top: -12,
-    right: -18,
-  },
-  categoryBackgroundIcon: {
-    position: 'absolute',
-    left: 6,
-    top: 6,
-    opacity: 0.12,
-  },
-  categoryOrbit: {
-    position: 'absolute',
-    width: 54,
-    height: 54,
-    borderRadius: 27,
-    borderWidth: 1,
-    opacity: 0.18,
-    top: 8,
-    left: 10,
-  },
-  categoryIconWrap: {
-    width: 46,
-    height: 46,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.12,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 3,
-  },
-  categoryMiniBadge: {
-    position: 'absolute',
-    right: 10,
-    bottom: 10,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  categoryName: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#fff',
-    textAlign: 'center',
-    lineHeight: 15,
-    width: '100%',
-  },
-  jobCard: {
-    backgroundColor: '#f9f9f9',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#f0f0f0',
-  },
-  jobCardBoost: {
-    borderColor: '#FDE68A',
-    backgroundColor: '#FFFBEB',
-  },
-  jobCardTop: {
-    borderColor: '#FDBA74',
-    backgroundColor: '#FFF7ED',
-  },
-  jobHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 8,
-  },
-  jobTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#000',
-    flex: 1,
-  },
-  distanceBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  distanceText: {
-    fontSize: 12,
-    color: '#666',
-  },
-  jobDescription: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 12,
-  },
-  jobPromotionBadge: {
-    alignSelf: 'flex-start',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-    marginBottom: 10,
-  },
-  jobPromotionBadgeBoost: {
-    backgroundColor: '#FEF3C7',
-  },
-  jobPromotionBadgeTop: {
-    backgroundColor: '#FED7AA',
-  },
-  jobPromotionText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#111827',
-  },
-  jobFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  jobBudget: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#000',
-  },
-  jobCategory: {
-    fontSize: 12,
-    color: '#666',
-    backgroundColor: '#fff',
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  infoBox: {
-    flexDirection: 'row',
-    backgroundColor: '#f9f9f9',
-    borderRadius: 12,
-    padding: 16,
-    gap: 12,
-    alignItems: 'center',
-  },
-  infoText: {
-    flex: 1,
-    fontSize: 14,
-    color: '#666',
-    lineHeight: 20,
-  },
+  container: { flex: 1, backgroundColor: colors.canvas },
+  scrollContent: { paddingBottom: spacing.page },
+  pageFrame: { width: '100%', maxWidth: 1040, alignSelf: 'center', paddingHorizontal: spacing.lg },
+  topBar: { minHeight: 64, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  topActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  iconButton: { width: layout.minimumTouchTarget, height: layout.minimumTouchTarget, alignItems: 'center', justifyContent: 'center', borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
+  profileButton: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center', borderRadius: radius.lg, backgroundColor: colors.ink },
+  profileInitial: { fontSize: 16, lineHeight: 22, fontWeight: '700', color: colors.inverse },
+  greetingBlock: { paddingTop: spacing.lg, paddingBottom: spacing.xxl, maxWidth: 680 },
+  eyebrow: { ...typography.overline, color: colors.primary, marginBottom: spacing.xs },
+  greeting: { ...typography.h1, color: colors.ink },
+  greetingText: { ...typography.bodyLarge, color: colors.muted, marginTop: spacing.sm },
+  actionHero: { padding: spacing.xl, gap: spacing.xl, borderRadius: radius.lg, backgroundColor: colors.primaryDark, ...shadows.card },
+  actionHeroWide: { minHeight: 230, flexDirection: 'row', alignItems: 'center', padding: spacing.section, gap: spacing.section },
+  actionHeroCopy: { flex: 1, maxWidth: 620 },
+  heroIcon: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center', borderRadius: radius.lg, backgroundColor: '#F6B44B', marginBottom: spacing.lg },
+  actionHeroTitle: { ...typography.h2, color: colors.inverse },
+  actionHeroText: { ...typography.body, color: '#D5E5DF', marginTop: spacing.sm },
+  heroActions: { gap: spacing.sm },
+  heroActionsWide: { width: 210 },
+  processStrip: { minHeight: 84, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, marginTop: spacing.md, paddingHorizontal: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
+  processStep: { flex: 1, minWidth: 0, alignItems: 'center', gap: spacing.xs },
+  processIcon: { width: 34, height: 34, alignItems: 'center', justifyContent: 'center', borderRadius: radius.lg, backgroundColor: colors.subtle },
+  processText: { ...typography.caption, color: colors.ink, textAlign: 'center' },
+  section: { paddingTop: spacing.section },
+  sectionHeading: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', gap: spacing.md, marginBottom: spacing.lg },
+  sectionHeadingCopy: { flex: 1, minWidth: 0 },
+  sectionTitle: { ...typography.h3, color: colors.ink },
+  sectionSubtitle: { ...typography.body, color: colors.muted, marginTop: spacing.xs },
+  textButton: { minHeight: layout.minimumTouchTarget, flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  textButtonLabel: { ...typography.label, color: colors.primary },
+  inlineState: { minHeight: 94, flexDirection: 'row', alignItems: 'center', gap: spacing.md, padding: spacing.lg, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.dangerSoft, backgroundColor: colors.surface },
+  inlineStateCopy: { flex: 1, minWidth: 0 },
+  inlineStateTitle: { ...typography.label, color: colors.ink },
+  inlineStateText: { ...typography.caption, color: colors.muted, marginTop: spacing.xs },
+  retryIconButton: { width: layout.minimumTouchTarget, height: layout.minimumTouchTarget, alignItems: 'center', justifyContent: 'center' },
+  jobsGrid: { gap: spacing.md },
+  jobsGridWide: { flexDirection: 'row', flexWrap: 'wrap' },
+  jobCard: { padding: spacing.lg, gap: spacing.sm, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
+  jobCardWide: { width: '48.5%', minHeight: 210 },
+  jobTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
+  jobCategory: { ...typography.overline, flex: 1, color: colors.primary },
+  jobTitle: { ...typography.title, color: colors.ink },
+  jobDescription: { ...typography.body, flex: 1, color: colors.muted },
+  jobBottomRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border },
+  jobBudget: { ...typography.title, color: colors.ink },
+  jobAction: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  jobActionText: { ...typography.label, color: colors.primary },
+  categoriesGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md },
+  categoryCard: { minHeight: 78, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
+  categoryCardWide: { width: '23.5%' },
+  categoryCardMobile: { width: '100%' },
+  categoryIcon: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center', borderRadius: radius.lg, backgroundColor: colors.subtle },
+  categoryLabel: { ...typography.label, flex: 1, color: colors.ink },
+  connectionBand: { gap: spacing.lg, marginTop: spacing.section, padding: spacing.xl, borderRadius: radius.lg, borderWidth: 1, borderColor: '#BFD3E4', backgroundColor: colors.infoSoft },
+  connectionBandWide: { flexDirection: 'row', alignItems: 'center', padding: spacing.xxl },
+  connectionIcon: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center', borderRadius: radius.lg, backgroundColor: colors.surface },
+  connectionCopy: { flex: 1 },
+  connectionEyebrow: { ...typography.overline, color: colors.info },
+  connectionTitle: { ...typography.title, color: colors.ink, marginTop: spacing.xs },
+  connectionText: { ...typography.body, color: colors.muted, marginTop: spacing.xs },
+  supportRow: { minHeight: 76, flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginTop: spacing.md, padding: spacing.md, borderRadius: radius.lg, backgroundColor: colors.surface },
+  supportCopy: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  supportText: { ...typography.caption, flex: 1, color: colors.muted },
+  supportAction: { minHeight: layout.minimumTouchTarget, justifyContent: 'center', paddingHorizontal: spacing.sm },
+  supportActionText: { ...typography.label, color: colors.primary },
 });

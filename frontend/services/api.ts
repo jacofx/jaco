@@ -26,8 +26,10 @@ api.interceptors.request.use(
 
 // Auth APIs
 export const authAPI = {
+  sendEmailCode: (email: string) => api.post('/auth/send-email-code', { email }),
   register: (data: any) => api.post('/auth/register', data),
   login: (data: any) => api.post('/auth/login', data),
+  googleLogin: (data: any) => api.post('/auth/google', data),
   getMe: () => api.get('/auth/me'),
 };
 
@@ -130,6 +132,27 @@ export const jobAPI = {
   getMyAcceptedJobs: () => api.get('/jobs/my/accepted'),
   acceptJob: (jobId: string) => api.put(`/jobs/${jobId}/accept`),
   updateJobStatus: (jobId: string, status: string) => api.put(`/jobs/${jobId}/status`, { status }),
+};
+
+export const aiAPI = {
+  analyzeProblem: (data: any) => api.post('/ai/analyze-problem', data),
+};
+
+export const offerAPI = {
+  createOffer: (jobId: string, data: any) => api.post(`/jobs/${jobId}/offers`, data),
+  getJobOffers: (jobId: string) => api.get(`/jobs/${jobId}/offers`),
+  acceptOffer: (offerId: string) => api.post(`/offers/${offerId}/accept`),
+};
+
+export const bookingAPI = {
+  getMyBookings: () => api.get('/bookings/my'),
+  initializePayment: (bookingId: string, data?: any) => api.post(`/bookings/${bookingId}/payment`, data || {}),
+};
+
+export const communityAPI = {
+  getCommunities: () => api.get('/communities'),
+  joinCommunity: (communityId: string) => api.post(`/communities/${communityId}/join`),
+  createReferral: (data: any) => api.post('/referrals', data),
 };
 
 // Helper APIs

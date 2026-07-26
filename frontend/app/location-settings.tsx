@@ -1,33 +1,20 @@
 import React, { useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  ScrollView,
-  ActivityIndicator,
-  Alert,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useRouter } from 'expo-router';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
-import { Ionicons } from '@expo/vector-icons';
-import { useAuthStore } from '../store/authStore';
+
+import { AppButton, EmptyState, ScreenHeader, StatusBadge } from '../components/ui';
+import { colors, layout, radius, spacing, typography } from '../constants/theme';
 import { userAPI } from '../services/api';
 import { getApiErrorMessage } from '../services/error';
+import { useAuthStore } from '../store/authStore';
 
 function buildAddressFromGeocode(result?: Location.LocationGeocodedAddress | null) {
-  if (!result) {
-    return '';
-  }
+  if (!result) return '';
 
-  return [
-    result.name,
-    result.street,
-    result.city,
-    result.region,
-    result.country,
-  ]
+  return [result.name, result.street, result.city, result.region, result.country]
     .filter(Boolean)
     .join(', ');
 }
@@ -37,17 +24,37 @@ export default function LocationSettingsScreen() {
   const { user, setUser } = useAuthStore();
   const [isFetching, setIsFetching] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const location = user?.location;
+  const latitude = Number(location?.lat);
+  const longitude = Number(location?.lng);
+  const hasCoordinates = Number.isFinite(latitude) && Number.isFinite(longitude);
+  const busy = isFetching || isSaving;
+  const locationButtonLabel = isSaving
+    ? 'Saving location'
+    : isFetching
+      ? 'Finding location'
+      : location
+        ? 'Update current location'
+        : 'Use current location';
+
+  const goBack = () => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+    router.replace('/(tabs)/profile');
+  };
 
   const handleUseCurrentLocation = async () => {
+    setError(null);
     setIsFetching(true);
 
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
-
       if (status !== 'granted') {
-        Alert.alert('Permission Denied', 'Location permission is required to save your current location.');
+        setError('Location permission is off. Allow access in your device settings, then try again.');
         return;
       }
 
@@ -66,13 +73,15 @@ export default function LocationSettingsScreen() {
         address: buildAddressFromGeocode(geocode[0]) || 'Current location',
       };
 
+      setIsFetching(false);
       setIsSaving(true);
       const response = await userAPI.updateUser({ location: payload });
       setUser(response.data);
-      Alert.alert('Location Updated', 'Your saved location has been updated.');
-      router.back();
-    } catch (error: any) {
-      Alert.alert('Update Failed', getApiErrorMessage(error, 'Unable to update location.'));
+      Alert.alert('Location updated', 'Nearby results will now use this saved location.', [
+        { text: 'Done', onPress: goBack },
+      ]);
+    } catch (requestError: any) {
+      setError(getApiErrorMessage(requestError, 'Unable to update your location right now.'));
     } finally {
       setIsFetching(false);
       setIsSaving(false);
@@ -80,113 +89,174 @@ export default function LocationSettingsScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.content}>
-        <Text style={styles.title}>Location Settings</Text>
-        <Text style={styles.subtitle}>
-          Save your current location so nearby jobs and helpers are more accurate.
-        </Text>
+    <SafeAreaView edges={['top', 'bottom']} style={styles.container}>
+      <View style={styles.frame}>
+        <ScreenHeader
+          title="Location settings"
+          subtitle="Use a saved location to improve nearby provider and work results."
+          eyebrow="Matching preferences"
+          onBack={goBack}
+          bordered
+        />
 
-        <View style={styles.card}>
-          <View style={styles.cardHeader}>
-            <Ionicons name="location" size={20} color="#111827" />
-            <Text style={styles.cardTitle}>Saved Location</Text>
+        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+          {error ? (
+            <View accessibilityLiveRegion="polite" style={styles.errorBanner}>
+              <Ionicons name="alert-circle-outline" size={20} color={colors.danger} />
+              <Text style={styles.errorText}>{error}</Text>
+            </View>
+          ) : null}
+
+          <View style={styles.locationCard}>
+            <View style={styles.cardHeader}>
+              <View style={styles.cardTitleRow}>
+                <View style={styles.locationIcon}>
+                  <Ionicons name="location" size={21} color={colors.primary} />
+                </View>
+                <Text style={styles.cardTitle}>Saved location</Text>
+              </View>
+              {location ? <StatusBadge label="Saved" tone="success" /> : null}
+            </View>
+
+            {location ? (
+              <View style={styles.locationDetails}>
+                <Text style={styles.locationAddress}>
+                  {location.address || 'Saved location'}
+                </Text>
+                {hasCoordinates ? (
+                  <Text style={styles.locationMeta}>
+                    {latitude.toFixed(5)}, {longitude.toFixed(5)}
+                  </Text>
+                ) : null}
+              </View>
+            ) : (
+              <EmptyState
+                compact
+                description="Use your current position to make distance sorting more useful."
+                icon="navigate-outline"
+                title="No location saved"
+              />
+            )}
           </View>
 
-          {location ? (
-            <>
-              <Text style={styles.locationAddress}>{location.address}</Text>
-              <Text style={styles.locationMeta}>
-                {location.lat.toFixed(5)}, {location.lng.toFixed(5)}
+          <AppButton
+            accessibilityHint="Requests location permission and saves your current position"
+            fullWidth
+            icon="locate-outline"
+            label={locationButtonLabel}
+            loading={busy}
+            onPress={handleUseCurrentLocation}
+            size="large"
+          />
+
+          <View style={styles.privacyNote}>
+            <Ionicons name="shield-checkmark-outline" size={21} color={colors.primary} />
+            <View style={styles.privacyCopy}>
+              <Text style={styles.privacyTitle}>Used for local matching</Text>
+              <Text style={styles.privacyText}>
+                SolveConnect uses this location to calculate nearby results. You choose when to update it.
               </Text>
-            </>
-          ) : (
-            <Text style={styles.emptyText}>No location saved yet.</Text>
-          )}
-        </View>
-
-        <TouchableOpacity
-          style={styles.primaryButton}
-          onPress={handleUseCurrentLocation}
-          disabled={isFetching || isSaving}
-        >
-          {isFetching || isSaving ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.primaryButtonText}>Use Current Location</Text>
-          )}
-        </TouchableOpacity>
-
-        <Text style={styles.note}>
-          The app uses your saved location to improve nearby helper discovery and job matching.
-        </Text>
-      </ScrollView>
+            </View>
+          </View>
+        </ScrollView>
+      </View>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
+    backgroundColor: colors.canvas,
     flex: 1,
-    backgroundColor: '#fff',
+  },
+  frame: {
+    alignSelf: 'center',
+    flex: 1,
+    maxWidth: layout.readingMaxWidth,
+    width: '100%',
   },
   content: {
-    padding: 20,
-    gap: 18,
+    gap: spacing.xl,
+    padding: spacing.lg,
+    paddingBottom: spacing.page,
   },
-  title: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: '#111827',
-  },
-  subtitle: {
-    fontSize: 15,
-    color: '#6B7280',
-  },
-  card: {
-    backgroundColor: '#F9FAFB',
-    borderRadius: 18,
-    padding: 18,
-    gap: 10,
+  errorBanner: {
+    alignItems: 'flex-start',
+    backgroundColor: colors.dangerSoft,
+    borderColor: colors.danger,
+    borderRadius: radius.lg,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    flexDirection: 'row',
+    gap: spacing.sm,
+    padding: spacing.md,
+  },
+  errorText: {
+    ...typography.body,
+    color: colors.danger,
+    flex: 1,
+  },
+  locationCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    gap: spacing.lg,
+    padding: spacing.lg,
   },
   cardHeader: {
-    flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    flexDirection: 'row',
+    gap: spacing.md,
+    justifyContent: 'space-between',
+  },
+  cardTitleRow: {
+    alignItems: 'center',
+    flex: 1,
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  locationIcon: {
+    alignItems: 'center',
+    backgroundColor: colors.primarySoft,
+    borderRadius: radius.lg,
+    height: 40,
+    justifyContent: 'center',
+    width: 40,
   },
   cardTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#111827',
+    ...typography.title,
+    color: colors.ink,
+  },
+  locationDetails: {
+    gap: spacing.xs,
   },
   locationAddress: {
-    fontSize: 16,
-    color: '#111827',
+    ...typography.bodyLarge,
+    color: colors.ink,
+    fontWeight: '700',
   },
   locationMeta: {
-    fontSize: 13,
-    color: '#6B7280',
+    ...typography.caption,
+    color: colors.muted,
   },
-  emptyText: {
-    fontSize: 15,
-    color: '#6B7280',
+  privacyNote: {
+    alignItems: 'flex-start',
+    backgroundColor: colors.subtle,
+    borderRadius: radius.lg,
+    flexDirection: 'row',
+    gap: spacing.md,
+    padding: spacing.lg,
   },
-  primaryButton: {
-    backgroundColor: '#111827',
-    borderRadius: 14,
-    paddingVertical: 16,
-    alignItems: 'center',
+  privacyCopy: {
+    flex: 1,
+    gap: spacing.xs,
   },
-  primaryButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
+  privacyTitle: {
+    ...typography.bodyStrong,
+    color: colors.ink,
   },
-  note: {
-    fontSize: 13,
-    lineHeight: 20,
-    color: '#6B7280',
+  privacyText: {
+    ...typography.body,
+    color: colors.muted,
   },
 });

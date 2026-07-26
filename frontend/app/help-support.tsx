@@ -1,121 +1,242 @@
-import React from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-} from 'react-native';
+import React, { type ComponentProps } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
 
-const SUPPORT_ITEMS = [
+import { ScreenHeader } from '../components/ui';
+import { colors, layout, radius, spacing, typography } from '../constants/theme';
+
+type IconName = ComponentProps<typeof Ionicons>['name'];
+type SupportRoute = '/edit-profile' | '/location-settings' | '/payments';
+
+const SUPPORT_ITEMS: {
+  icon: IconName;
+  title: string;
+  description: string;
+  route: SupportRoute;
+}[] = [
   {
     icon: 'person-circle-outline',
-    title: 'Profile updates',
-    description: 'Use Edit Profile to change your display name and helper skills.',
+    title: 'Profile and skills',
+    description: 'Update the name and provider skills shown on your account.',
+    route: '/edit-profile',
   },
   {
     icon: 'location-outline',
-    title: 'Location issues',
-    description: 'Open Location Settings and save your current position again if nearby results look wrong.',
+    title: 'Location and nearby results',
+    description: 'Refresh your saved position when distance or nearby results look wrong.',
+    route: '/location-settings',
   },
   {
-    icon: 'card-outline',
-    title: 'Payment history',
-    description: 'Use Ad Payments from your profile to review previous promotion purchases.',
+    icon: 'receipt-outline',
+    title: 'Promotion payments',
+    description: 'Review completed and pending ad promotion payments.',
+    route: '/payments',
   },
 ];
 
 export default function HelpSupportScreen() {
-  return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.content}>
-        <Text style={styles.title}>Help & Support</Text>
-        <Text style={styles.subtitle}>
-          Use the sections below to troubleshoot common account issues inside the app.
-        </Text>
+  const router = useRouter();
 
-        {SUPPORT_ITEMS.map((item) => (
-          <View key={item.title} style={styles.card}>
-            <Ionicons name={item.icon as any} size={22} color="#111827" />
-            <View style={styles.cardBody}>
-              <Text style={styles.cardTitle}>{item.title}</Text>
-              <Text style={styles.cardDescription}>{item.description}</Text>
+  const goBack = () => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+    router.replace('/(tabs)/profile');
+  };
+
+  return (
+    <SafeAreaView edges={['top', 'bottom']} style={styles.container}>
+      <View style={styles.frame}>
+        <ScreenHeader
+          title="Help and support"
+          subtitle="Use these shortcuts to resolve common account and app issues."
+          eyebrow="Self-service"
+          onBack={goBack}
+          bordered
+        />
+
+        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+          <View style={styles.linkList}>
+            {SUPPORT_ITEMS.map((item, index) => (
+              <Pressable
+                accessibilityHint={item.description}
+                accessibilityLabel={item.title}
+                accessibilityRole="button"
+                key={item.title}
+                onPress={() => router.push(item.route)}
+                style={({ pressed }) => [
+                  styles.linkRow,
+                  index === SUPPORT_ITEMS.length - 1 && styles.linkRowLast,
+                  pressed && styles.linkRowPressed,
+                ]}
+              >
+                <View style={styles.iconContainer}>
+                  <Ionicons name={item.icon} size={22} color={colors.primary} />
+                </View>
+                <View style={styles.linkCopy}>
+                  <Text style={styles.linkTitle}>{item.title}</Text>
+                  <Text style={styles.linkDescription}>{item.description}</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={21} color={colors.muted} />
+              </Pressable>
+            ))}
+          </View>
+
+          <View style={styles.guidancePanel}>
+            <View style={styles.guidanceHeader}>
+              <Ionicons name="information-circle-outline" size={22} color={colors.info} />
+              <Text style={styles.guidanceTitle}>Before trying again</Text>
+            </View>
+            <View style={styles.guidanceList}>
+              <View style={styles.guidanceRow}>
+                <Ionicons name="checkmark" size={17} color={colors.success} />
+                <Text style={styles.guidanceText}>Confirm that your phone has a working internet connection.</Text>
+              </View>
+              <View style={styles.guidanceRow}>
+                <Ionicons name="checkmark" size={17} color={colors.success} />
+                <Text style={styles.guidanceText}>Pull down to refresh the screen that failed.</Text>
+              </View>
+              <View style={styles.guidanceRow}>
+                <Ionicons name="checkmark" size={17} color={colors.success} />
+                <Text style={styles.guidanceText}>Keep the exact error message available when reporting an issue.</Text>
+              </View>
             </View>
           </View>
-        ))}
 
-        <View style={styles.infoBox}>
-          <Text style={styles.infoTitle}>Need more help?</Text>
-          <Text style={styles.infoText}>
-            If a feature still fails after retrying, restart the app and sign in again to refresh your session.
+          <View style={styles.securityNote}>
+            <Ionicons name="shield-checkmark-outline" size={21} color={colors.warning} />
+            <View style={styles.securityCopy}>
+              <Text style={styles.securityTitle}>Protect your account</Text>
+              <Text style={styles.securityText}>
+                Never share your password, sign-in code, or complete payment details with anyone claiming to offer support.
+              </Text>
+            </View>
+          </View>
+
+          <Text style={styles.disclosure}>
+            These are self-service tools and do not create a support ticket.
           </Text>
-        </View>
-      </ScrollView>
+        </ScrollView>
+      </View>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
+    backgroundColor: colors.canvas,
     flex: 1,
-    backgroundColor: '#fff',
+  },
+  frame: {
+    alignSelf: 'center',
+    flex: 1,
+    maxWidth: layout.readingMaxWidth,
+    width: '100%',
   },
   content: {
-    padding: 20,
-    gap: 16,
+    gap: spacing.xl,
+    padding: spacing.lg,
+    paddingBottom: spacing.page,
   },
-  title: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: '#111827',
+  linkList: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    overflow: 'hidden',
   },
-  subtitle: {
-    fontSize: 15,
-    color: '#6B7280',
-    lineHeight: 22,
-  },
-  card: {
+  linkRow: {
+    alignItems: 'center',
+    borderBottomColor: colors.border,
+    borderBottomWidth: 1,
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 12,
-    backgroundColor: '#F9FAFB',
-    borderRadius: 18,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
+    gap: spacing.md,
+    minHeight: 82,
+    padding: spacing.lg,
   },
-  cardBody: {
+  linkRowPressed: {
+    backgroundColor: colors.subtle,
+  },
+  linkRowLast: {
+    borderBottomWidth: 0,
+  },
+  iconContainer: {
+    alignItems: 'center',
+    backgroundColor: colors.primarySoft,
+    borderRadius: radius.lg,
+    height: 42,
+    justifyContent: 'center',
+    width: 42,
+  },
+  linkCopy: {
     flex: 1,
-    gap: 4,
+    gap: spacing.xs,
+    minWidth: 0,
   },
-  cardTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#111827',
+  linkTitle: {
+    ...typography.bodyStrong,
+    color: colors.ink,
   },
-  cardDescription: {
-    fontSize: 14,
-    lineHeight: 20,
-    color: '#6B7280',
+  linkDescription: {
+    ...typography.body,
+    color: colors.muted,
   },
-  infoBox: {
-    marginTop: 8,
-    backgroundColor: '#FFF7ED',
-    borderRadius: 18,
-    padding: 16,
+  guidancePanel: {
+    backgroundColor: colors.infoSoft,
+    borderColor: colors.info,
+    borderRadius: radius.lg,
     borderWidth: 1,
-    borderColor: '#FDBA74',
-    gap: 6,
+    gap: spacing.md,
+    padding: spacing.lg,
   },
-  infoTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#9A3412',
+  guidanceHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.sm,
   },
-  infoText: {
-    fontSize: 14,
-    lineHeight: 20,
-    color: '#9A3412',
+  guidanceTitle: {
+    ...typography.title,
+    color: colors.ink,
+  },
+  guidanceList: {
+    gap: spacing.sm,
+  },
+  guidanceRow: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  guidanceText: {
+    ...typography.body,
+    color: colors.ink,
+    flex: 1,
+  },
+  securityNote: {
+    alignItems: 'flex-start',
+    backgroundColor: colors.warningSoft,
+    borderRadius: radius.lg,
+    flexDirection: 'row',
+    gap: spacing.md,
+    padding: spacing.lg,
+  },
+  securityCopy: {
+    flex: 1,
+    gap: spacing.xs,
+  },
+  securityTitle: {
+    ...typography.bodyStrong,
+    color: colors.warning,
+  },
+  securityText: {
+    ...typography.body,
+    color: colors.warning,
+  },
+  disclosure: {
+    ...typography.caption,
+    color: colors.muted,
+    textAlign: 'center',
   },
 });
