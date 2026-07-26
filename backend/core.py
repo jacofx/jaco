@@ -12,7 +12,7 @@ import random
 import smtplib
 import ssl
 from urllib.parse import parse_qs, urlparse
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from bson import ObjectId
 from dotenv import load_dotenv
@@ -96,6 +96,19 @@ class JobStatus(str, Enum):
     COMPLETED = "completed"
 
 
+class OfferStatus(str, Enum):
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+    DECLINED = "declined"
+
+
+class BookingStatus(str, Enum):
+    PENDING_PAYMENT = "pending_payment"
+    PAID = "paid"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+
+
 class Location(BaseModel):
     lat: float
     lng: float
@@ -150,6 +163,13 @@ class UserLogin(BaseModel):
     password: str
 
 
+class GoogleLogin(BaseModel):
+    id_token: Optional[str] = None
+    access_token: Optional[str] = None
+    role: Optional[UserRole] = UserRole.NEED_HELP
+    skills: Optional[List[str]] = []
+
+
 class UserUpdate(BaseModel):
     name: Optional[str] = None
     profile_photo: Optional[str] = None
@@ -171,11 +191,40 @@ class JobCreate(BaseModel):
     is_featured: Optional[bool] = None
     is_urgent: Optional[bool] = None
     payment_id: Optional[str] = None
+    ai_analysis: Optional[dict[str, Any]] = None
+    solution_flow: Optional[dict[str, Any]] = None
+    match_recommendations: Optional[dict[str, Any]] = None
 
 
 class JobUpdate(BaseModel):
     status: Optional[JobStatus] = None
     helper_id: Optional[str] = None
+
+
+class ProblemAnalyzeRequest(BaseModel):
+    title: Optional[str] = None
+    description: str
+    category: Optional[str] = None
+    budget: Optional[float] = None
+    location: Optional[Location] = None
+
+
+class JobOfferCreate(BaseModel):
+    quote: float = Field(gt=0)
+    message: str
+    timeline: str
+    availability: str
+    provider_type: Optional[str] = "expert"
+
+
+class BookingPaymentCreate(BaseModel):
+    provider: Optional[str] = "demo"
+
+
+class ReferralCreate(BaseModel):
+    invitee_contact: Optional[str] = None
+    community_id: Optional[str] = None
+    message: Optional[str] = None
 
 
 class MessageCreate(BaseModel):
@@ -189,6 +238,11 @@ class ReviewCreate(BaseModel):
     helper_id: str
     rating: int = Field(ge=1, le=5)
     comment: str
+    quality: Optional[int] = Field(default=None, ge=1, le=5)
+    speed: Optional[int] = Field(default=None, ge=1, le=5)
+    price_fairness: Optional[int] = Field(default=None, ge=1, le=5)
+    communication: Optional[int] = Field(default=None, ge=1, le=5)
+    solved: Optional[bool] = True
 
 
 def hash_password(password: str) -> str:
@@ -491,6 +545,36 @@ def serialize_payment(payment: dict) -> dict:
     return payment
 
 
+def serialize_offer(offer: dict) -> dict:
+    offer["_id"] = str(offer["_id"])
+    offer["job_id"] = str(offer["job_id"])
+    offer["provider_id"] = str(offer["provider_id"])
+    offer["user_id"] = str(offer["user_id"])
+    return offer
+
+
+def serialize_booking(booking: dict) -> dict:
+    booking["_id"] = str(booking["_id"])
+    booking["job_id"] = str(booking["job_id"])
+    booking["offer_id"] = str(booking["offer_id"])
+    booking["user_id"] = str(booking["user_id"])
+    booking["provider_id"] = str(booking["provider_id"])
+    return booking
+
+
+def serialize_community(community: dict) -> dict:
+    community["_id"] = str(community["_id"])
+    return community
+
+
+def serialize_referral(referral: dict) -> dict:
+    referral["_id"] = str(referral["_id"])
+    referral["user_id"] = str(referral["user_id"])
+    if referral.get("community_id"):
+        referral["community_id"] = str(referral["community_id"])
+    return referral
+
+
 def serialize_notification(notification: dict) -> dict:
     notification["_id"] = str(notification["_id"])
     notification["user_id"] = str(notification["user_id"])
@@ -522,3 +606,8 @@ def validate_checkout_redirect_base(redirect_uri: Optional[str] = None) -> str:
         return candidate.rstrip("/")
 
     raise HTTPException(status_code=400, detail="Unsupported checkout redirect URI")
+
+
+def get_google_client_ids() -> set:
+    raw_client_ids = os.environ.get("GOOGLE_CLIENT_IDS", "")
+    return {client_id.strip() for client_id in raw_client_ids.split(",") if client_id.strip()}

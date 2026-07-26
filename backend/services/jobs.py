@@ -5,6 +5,7 @@ from bson import ObjectId
 
 import core
 from services.notifications import create_notification
+from services.ai import analyze_problem
 from services.payments import validate_job_payment
 from services.promotions import hydrate_job, normalize_job_promotion
 
@@ -16,9 +17,20 @@ ALLOWED_STATUS_TRANSITIONS = {
 
 async def create_job(current_user: dict, job_dict: dict):
     payment = await validate_job_payment(current_user, job_dict)
+    analysis = job_dict.get("ai_analysis") or await analyze_problem(job_dict)
+    match_recommendations = job_dict.get("match_recommendations") or analysis.get("match_recommendations", {})
     job_dict["user_id"] = current_user["_id"]
     job_dict["helper_id"] = None
     job_dict["status"] = core.JobStatus.POSTED
+    job_dict["ai_analysis"] = analysis
+    job_dict["match_recommendations"] = match_recommendations
+    job_dict["solution_flow"] = job_dict.get("solution_flow") or {
+        "stage": "ai_analyzed",
+        "urgency_score": analysis.get("urgency_score"),
+        "matched_experts": analysis.get("recommended_expert_ids", []),
+        "matched_businesses": analysis.get("recommended_business_ids", []),
+        "matched_communities": analysis.get("recommended_community_ids", []),
+    }
     job_dict["created_at"] = datetime.utcnow()
     job_dict["updated_at"] = datetime.utcnow()
     job_dict = normalize_job_promotion(job_dict)

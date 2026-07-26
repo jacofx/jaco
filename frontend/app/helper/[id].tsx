@@ -1,51 +1,234 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  ActivityIndicator,
   Image,
+  ScrollView,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
 } from 'react-native';
-import { useRouter, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
-import { userAPI, reviewAPI } from '../../services/api';
+
+import {
+  AppButton,
+  EmptyState,
+  LoadingState,
+  ScreenHeader,
+  StatusBadge,
+} from '../../components/ui';
+import { colors, layout, radius, shadows, spacing, typography } from '../../constants/theme';
+import { reviewAPI, userAPI } from '../../services/api';
+import { getApiErrorMessage } from '../../services/error';
+import { useAuthStore } from '../../store/authStore';
+
+type PublicLocation = {
+  area?: string;
+  city?: string;
+  state?: string;
+};
+
+type HelperProfile = {
+  _id: string;
+  name?: string;
+  role?: string;
+  profile_photo?: string | null;
+  skills?: unknown;
+  location?: PublicLocation | null;
+  rating?: number | null;
+  rating_count?: number | null;
+  completed_jobs_count?: number | null;
+  email_verified?: boolean;
+  phone_verified?: boolean;
+  identity_verified?: boolean;
+  is_verified?: boolean;
+};
+
+type HelperReview = {
+  _id?: string;
+  rating?: number;
+  comment?: string | null;
+  user_name?: string | null;
+  created_at?: string | null;
+};
+
+function getStringList(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
+}
+
+function getServiceArea(location?: PublicLocation | null) {
+  if (!location) return null;
+
+  const parts = [location.area, location.city, location.state]
+    .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    .map((item) => item.trim());
+
+  return [...new Set(parts)].join(', ') || null;
+}
+
+function getReviewDate(value?: string | null) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+
+  return date.toLocaleDateString(undefined, {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
+}
+
+function getReviewRating(value?: number) {
+  const rating = Number(value);
+  if (!Number.isFinite(rating)) return 0;
+  return Math.min(5, Math.max(0, Math.round(rating)));
+}
 
 export default function HelperProfileScreen() {
   const router = useRouter();
-  const { id } = useLocalSearchParams();
-  const [helper, setHelper] = useState<any>(null);
-  const [reviews, setReviews] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const params = useLocalSearchParams<{ id?: string | string[] }>();
+  const { width } = useWindowDimensions();
+  const { user } = useAuthStore();
+  const helperId = Array.isArray(params.id) ? params.id[0] : params.id;
+  const isWide = width >= 760;
 
-  const loadHelperProfile = useCallback(async () => {
-    try {
-      const [helperResponse, reviewsResponse] = await Promise.all([
-        userAPI.getUser(id as string),
-        reviewAPI.getHelperReviews(id as string),
-      ]);
-      
-      setHelper(helperResponse.data);
-      setReviews(reviewsResponse.data);
-    } catch (error) {
-      console.error('Error loading helper profile:', error);
-    } finally {
-      setLoading(false);
+  const [helper, setHelper] = useState<HelperProfile | null>(null);
+  const [reviews, setReviews] = useState<HelperReview[]>([]);
+  const [profileLoading, setProfileLoading] = useState(true);
+  const [reviewsLoading, setReviewsLoading] = useState(true);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [reviewsError, setReviewsError] = useState<string | null>(null);
+
+  const loadHelper = useCallback(async () => {
+    if (!helperId) {
+      setProfileError('This provider profile link is incomplete.');
+      setProfileLoading(false);
+      return;
     }
-  }, [id]);
+
+    setProfileLoading(true);
+    setProfileError(null);
+
+    try {
+      const response = await userAPI.getUser(helperId);
+      const nextHelper = response.data as HelperProfile;
+
+      if (!nextHelper || nextHelper.role !== 'helper') {
+        setHelper(null);
+        setProfileError('This service provider profile is not available.');
+        return;
+      }
+
+      setHelper(nextHelper);
+    } catch (requestError) {
+      setHelper(null);
+      setProfileError(
+        getApiErrorMessage(requestError, 'Unable to load this provider profile right now.'),
+      );
+    } finally {
+      setProfileLoading(false);
+    }
+  }, [helperId]);
+
+  const loadReviews = useCallback(async () => {
+    if (!helperId) {
+      setReviews([]);
+      setReviewsLoading(false);
+      return;
+    }
+
+    setReviewsLoading(true);
+    setReviewsError(null);
+
+    try {
+      const response = await reviewAPI.getHelperReviews(helperId);
+      setReviews(Array.isArray(response.data) ? (response.data as HelperReview[]) : []);
+    } catch (requestError) {
+      setReviews([]);
+      setReviewsError(
+        getApiErrorMessage(requestError, 'Reviews are unavailable right now.'),
+      );
+    } finally {
+      setReviewsLoading(false);
+    }
+  }, [helperId]);
 
   useEffect(() => {
-    loadHelperProfile();
-  }, [loadHelperProfile]);
+    void loadHelper();
+  }, [loadHelper]);
 
-  if (loading) {
+  useEffect(() => {
+    void loadReviews();
+  }, [loadReviews]);
+
+  const goBack = () => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+
+    router.replace('/(tabs)/helpers');
+  };
+
+  const skills = useMemo(() => getStringList(helper?.skills), [helper?.skills]);
+  const serviceArea = getServiceArea(helper?.location);
+  const helperName = helper?.name?.trim() || 'Service provider';
+  const completedJobs = Number(helper?.completed_jobs_count);
+  const hasCompletedJobs = Number.isFinite(completedJobs) && completedJobs >= 0;
+  const averageRating = Number(helper?.rating);
+  const hasRating = Number.isFinite(averageRating) && averageRating > 0;
+  const reportedRatingCount = Number(helper?.rating_count);
+  const reviewCount = Number.isFinite(reportedRatingCount) && reportedRatingCount > 0
+    ? reportedRatingCount
+    : reviews.length;
+  const isOwnProfile = Boolean(helperId && user?._id === helperId);
+  const identityVerified = helper?.identity_verified === true || helper?.is_verified === true;
+  const hasVerification = identityVerified
+    || helper?.email_verified === true
+    || helper?.phone_verified === true;
+
+  const primaryAction = useMemo(() => {
+    if (!helperId) return null;
+
+    if (isOwnProfile) {
+      return {
+        label: 'Manage your profile',
+        icon: 'create-outline' as const,
+        hint: 'Opens your profile settings',
+        onPress: () => router.push('/edit-profile'),
+      };
+    }
+
+    if (user?.role === 'need_help') {
+      return {
+        label: `Request help from ${helperName.split(' ')[0]}`,
+        icon: 'briefcase-outline' as const,
+        hint: 'Starts a SolveConnect request for this provider',
+        onPress: () => {
+          router.push(`/post-problem?provider=${encodeURIComponent(helperId)}` as Href);
+        },
+      };
+    }
+
+    if (user?.role === 'helper') {
+      return {
+        label: 'Browse open requests',
+        icon: 'search-outline' as const,
+        hint: 'Opens available customer requests',
+        onPress: () => router.push('/(tabs)/requests'),
+      };
+    }
+
+    return null;
+  }, [helperId, helperName, isOwnProfile, router, user?.role]);
+
+  if (profileLoading && !helper) {
     return (
       <SafeAreaView style={styles.container}>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#000" />
-        </View>
+        <ScreenHeader bordered compact onBack={goBack} title="Provider profile" />
+        <LoadingState fullScreen label="Loading provider profile" />
       </SafeAreaView>
     );
   }
@@ -53,109 +236,233 @@ export default function HelperProfileScreen() {
   if (!helper) {
     return (
       <SafeAreaView style={styles.container}>
-        <View style={styles.loadingContainer}>
-          <Text style={styles.errorText}>Helper not found</Text>
-        </View>
+        <ScreenHeader bordered compact onBack={goBack} title="Provider profile" />
+        <EmptyState
+          actionLabel="Try again"
+          description={profileError || 'This provider profile is not available.'}
+          icon="cloud-offline-outline"
+          onAction={() => void loadHelper()}
+          onSecondaryAction={goBack}
+          secondaryActionLabel="Go back"
+          style={styles.fullState}
+          title="Could not open profile"
+        />
       </SafeAreaView>
     );
   }
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={28} color="#000" />
-        </TouchableOpacity>
-      </View>
+      <ScreenHeader
+        bordered
+        compact
+        onBack={goBack}
+        subtitle="Review real work history before starting a request."
+        title="Provider profile"
+      />
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        <View style={styles.profileHeader}>
-          <View style={styles.avatarContainer}>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.content}>
+          {profileError ? (
+            <View accessibilityLiveRegion="polite" style={styles.inlineError}>
+              <Ionicons name="alert-circle-outline" size={19} color={colors.danger} />
+              <Text style={styles.inlineErrorText}>{profileError}</Text>
+              <AppButton
+                label="Retry"
+                onPress={() => void loadHelper()}
+                size="small"
+                variant="ghost"
+              />
+            </View>
+          ) : null}
+
+          <View style={[styles.profileHero, isWide && styles.profileHeroWide]}>
             {helper.profile_photo ? (
-              <Image source={{ uri: helper.profile_photo }} style={styles.avatar} />
+              <Image
+                accessibilityLabel={`${helperName}'s profile photo`}
+                resizeMode="cover"
+                source={{ uri: helper.profile_photo }}
+                style={styles.avatar}
+              />
             ) : (
-              <View style={styles.avatar}>
-                <Ionicons name="person" size={64} color="#999" />
+              <View
+                accessible
+                accessibilityLabel={`${helperName} has no profile photo`}
+                style={styles.avatarPlaceholder}
+              >
+                <Ionicons name="person-outline" size={46} color={colors.primary} />
+              </View>
+            )}
+
+            <View style={styles.profileCopy}>
+              <Text accessibilityRole="header" style={styles.name}>
+                {helperName}
+              </Text>
+              <Text style={styles.roleLabel}>Service provider on SolveConnect</Text>
+
+              {hasVerification ? (
+                <View style={styles.badges}>
+                  {identityVerified ? (
+                    <StatusBadge icon="shield-checkmark" label="Identity verified" tone="success" />
+                  ) : null}
+                  {helper.email_verified === true ? (
+                    <StatusBadge icon="mail" label="Email verified" tone="success" />
+                  ) : null}
+                  {helper.phone_verified === true ? (
+                    <StatusBadge icon="call" label="Phone verified" tone="success" />
+                  ) : null}
+                </View>
+              ) : null}
+
+              {serviceArea ? (
+                <View accessible accessibilityLabel={`Service area: ${serviceArea}`} style={styles.areaRow}>
+                  <Ionicons name="location-outline" size={18} color={colors.muted} />
+                  <Text style={styles.areaText}>{serviceArea}</Text>
+                </View>
+              ) : null}
+            </View>
+
+            {primaryAction ? (
+              <View style={styles.heroAction}>
+                <AppButton
+                  accessibilityHint={primaryAction.hint}
+                  fullWidth={!isWide}
+                  icon={primaryAction.icon}
+                  label={primaryAction.label}
+                  onPress={primaryAction.onPress}
+                />
+                {!isOwnProfile ? (
+                  <View style={styles.safetyRow}>
+                    <Ionicons name="lock-closed-outline" size={15} color={colors.muted} />
+                    <Text style={styles.safetyText}>
+                      Requests, offers, and messages stay inside SolveConnect.
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+            ) : null}
+          </View>
+
+          {(hasRating || hasCompletedJobs) ? (
+            <View style={styles.statsRow}>
+              {hasRating ? (
+                <View
+                  accessible
+                  accessibilityLabel={`${averageRating.toFixed(1)} out of 5 from ${reviewCount} reviews`}
+                  style={styles.stat}
+                >
+                  <Ionicons name="star" size={22} color={colors.accent} />
+                  <Text style={styles.statValue}>{averageRating.toFixed(1)}</Text>
+                  <Text style={styles.statLabel}>
+                    {reviewCount > 0 ? `${reviewCount} ${reviewCount === 1 ? 'review' : 'reviews'}` : 'Customer rating'}
+                  </Text>
+                </View>
+              ) : null}
+              {hasCompletedJobs ? (
+                <View
+                  accessible
+                  accessibilityLabel={`${completedJobs} completed jobs`}
+                  style={styles.stat}
+                >
+                  <Ionicons name="checkmark-circle" size={22} color={colors.success} />
+                  <Text style={styles.statValue}>{completedJobs.toLocaleString()}</Text>
+                  <Text style={styles.statLabel}>Completed jobs</Text>
+                </View>
+              ) : null}
+            </View>
+          ) : null}
+
+          {skills.length > 0 ? (
+            <View style={styles.section}>
+              <View style={styles.sectionHeading}>
+                <Text accessibilityRole="header" style={styles.sectionTitle}>Services and skills</Text>
+                <Text style={styles.sectionMeta}>{skills.length} listed</Text>
+              </View>
+              <View style={styles.skillsContainer}>
+                {skills.map((skill) => (
+                  <View key={skill} style={styles.skillBadge}>
+                    <Text style={styles.skillText}>{skill}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          ) : null}
+
+          <View style={styles.section}>
+            <View style={styles.sectionHeading}>
+              <Text accessibilityRole="header" style={styles.sectionTitle}>Customer reviews</Text>
+              {!reviewsLoading && !reviewsError && reviews.length > 0 ? (
+                <Text style={styles.sectionMeta}>{reviews.length} shown</Text>
+              ) : null}
+            </View>
+
+            {reviewsLoading ? (
+              <LoadingState label="Loading customer reviews" style={styles.reviewsState} />
+            ) : reviewsError ? (
+              <View accessibilityLiveRegion="polite" style={styles.reviewError}>
+                <Ionicons name="cloud-offline-outline" size={26} color={colors.danger} />
+                <View style={styles.reviewErrorCopy}>
+                  <Text style={styles.reviewErrorTitle}>Reviews could not load</Text>
+                  <Text style={styles.reviewErrorText}>{reviewsError}</Text>
+                </View>
+                <AppButton
+                  label="Retry"
+                  onPress={() => void loadReviews()}
+                  size="small"
+                  variant="outline"
+                />
+              </View>
+            ) : reviews.length === 0 ? (
+              <EmptyState
+                compact
+                description="Completed customer reviews will appear here."
+                icon="chatbox-outline"
+                title="No reviews yet"
+              />
+            ) : (
+              <View style={styles.reviewList}>
+                {reviews.map((review, index) => {
+                  const rating = getReviewRating(review.rating);
+                  const reviewDate = getReviewDate(review.created_at);
+                  const comment = review.comment?.trim();
+                  const author = review.user_name?.trim();
+
+                  return (
+                    <View
+                      key={review._id || `${review.created_at || 'review'}-${index}`}
+                      style={styles.reviewCard}
+                    >
+                      <View style={styles.reviewHeader}>
+                        <View
+                          accessible
+                          accessibilityLabel={`${rating} out of 5 stars`}
+                          style={styles.ratingContainer}
+                        >
+                          {Array.from({ length: 5 }, (_, starIndex) => (
+                            <Ionicons
+                              accessibilityElementsHidden
+                              importantForAccessibility="no-hide-descendants"
+                              key={starIndex}
+                              name={starIndex < rating ? 'star' : 'star-outline'}
+                              size={17}
+                              color={colors.accent}
+                            />
+                          ))}
+                        </View>
+                        {reviewDate ? <Text style={styles.reviewDate}>{reviewDate}</Text> : null}
+                      </View>
+                      {comment ? <Text style={styles.reviewComment}>{comment}</Text> : null}
+                      {author ? <Text style={styles.reviewAuthor}>{author}</Text> : null}
+                    </View>
+                  );
+                })}
               </View>
             )}
           </View>
-          
-          <Text style={styles.name}>{helper.name}</Text>
-          {helper.email && <Text style={styles.contact}>{helper.email}</Text>}
-          {helper.phone && <Text style={styles.contact}>{helper.phone}</Text>}
         </View>
-
-        <View style={styles.statsContainer}>
-          <View style={styles.statItem}>
-            <Ionicons name="star" size={32} color="#FFD700" />
-            <Text style={styles.statValue}>
-              {helper.rating > 0 ? helper.rating.toFixed(1) : '0.0'}
-            </Text>
-            <Text style={styles.statLabel}>Rating</Text>
-          </View>
-          
-          <View style={styles.statDivider} />
-          
-          <View style={styles.statItem}>
-            <Ionicons name="checkmark-circle" size={32} color="#4CAF50" />
-            <Text style={styles.statValue}>{helper.completed_jobs_count || 0}</Text>
-            <Text style={styles.statLabel}>Jobs Completed</Text>
-          </View>
-        </View>
-
-        {helper.skills && helper.skills.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Skills</Text>
-            <View style={styles.skillsContainer}>
-              {helper.skills.map((skill: string, index: number) => (
-                <View key={index} style={styles.skillBadge}>
-                  <Text style={styles.skillText}>{skill}</Text>
-                </View>
-              ))}
-            </View>
-          </View>
-        )}
-
-        {helper.location && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Location</Text>
-            <View style={styles.locationContainer}>
-              <Ionicons name="location-outline" size={20} color="#666" />
-              <Text style={styles.locationText}>{helper.location.address}</Text>
-            </View>
-          </View>
-        )}
-
-        {reviews.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Reviews ({reviews.length})</Text>
-            {reviews.map((review) => (
-              <View key={review._id} style={styles.reviewCard}>
-                <View style={styles.reviewHeader}>
-                  <View style={styles.ratingContainer}>
-                    {[...Array(5)].map((_, i) => (
-                      <Ionicons
-                        key={i}
-                        name={i < review.rating ? 'star' : 'star-outline'}
-                        size={16}
-                        color="#FFD700"
-                      />
-                    ))}
-                  </View>
-                  <Text style={styles.reviewDate}>
-                    {new Date(review.created_at).toLocaleDateString()}
-                  </Text>
-                </View>
-                {review.comment && (
-                  <Text style={styles.reviewComment}>{review.comment}</Text>
-                )}
-                {review.user_name && (
-                  <Text style={styles.reviewAuthor}>- {review.user_name}</Text>
-                )}
-              </View>
-            ))}
-          </View>
-        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -163,145 +470,241 @@ export default function HelperProfileScreen() {
 
 const styles = StyleSheet.create({
   container: {
+    backgroundColor: colors.canvas,
     flex: 1,
-    backgroundColor: '#fff',
   },
-  loadingContainer: {
+  fullState: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  errorText: {
-    fontSize: 16,
-    color: '#999',
-  },
-  header: {
-    padding: 16,
   },
   scrollContent: {
-    padding: 16,
-  },
-  profileHeader: {
     alignItems: 'center',
-    marginBottom: 24,
+    paddingBottom: spacing.page,
   },
-  avatarContainer: {
-    marginBottom: 16,
+  content: {
+    gap: spacing.xxl,
+    maxWidth: 900,
+    paddingHorizontal: layout.screenPadding,
+    paddingTop: spacing.xxl,
+    width: '100%',
+  },
+  inlineError: {
+    alignItems: 'center',
+    backgroundColor: colors.dangerSoft,
+    borderColor: colors.danger,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  inlineErrorText: {
+    ...typography.body,
+    color: colors.danger,
+    flex: 1,
+  },
+  profileHero: {
+    ...shadows.low,
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    gap: spacing.lg,
+    padding: spacing.xxl,
+  },
+  profileHeroWide: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
   },
   avatar: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: '#f9f9f9',
+    backgroundColor: colors.subtle,
+    borderRadius: radius.lg,
+    height: 104,
+    width: 104,
+  },
+  avatarPlaceholder: {
     alignItems: 'center',
+    backgroundColor: colors.primarySoft,
+    borderRadius: radius.lg,
+    height: 104,
     justifyContent: 'center',
+    width: 104,
+  },
+  profileCopy: {
+    alignItems: 'center',
+    flex: 1,
+    gap: spacing.xs,
+    minWidth: 0,
   },
   name: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#000',
-    marginBottom: 8,
+    ...typography.h2,
+    color: colors.ink,
+    textAlign: 'center',
   },
-  contact: {
-    fontSize: 16,
-    color: '#666',
-    marginBottom: 4,
+  roleLabel: {
+    ...typography.body,
+    color: colors.muted,
+    textAlign: 'center',
   },
-  statsContainer: {
-    flexDirection: 'row',
-    backgroundColor: '#f9f9f9',
-    borderRadius: 12,
-    padding: 24,
-    marginBottom: 24,
-  },
-  statItem: {
-    flex: 1,
+  badges: {
     alignItems: 'center',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    justifyContent: 'center',
+    marginTop: spacing.sm,
   },
-  statDivider: {
-    width: 1,
-    backgroundColor: '#e0e0e0',
-    marginHorizontal: 24,
+  areaRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.xs,
+    marginTop: spacing.sm,
+  },
+  areaText: {
+    ...typography.body,
+    color: colors.muted,
+  },
+  heroAction: {
+    alignItems: 'stretch',
+    gap: spacing.sm,
+    justifyContent: 'center',
+    maxWidth: 280,
+    width: '100%',
+  },
+  safetyRow: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
+    gap: spacing.xs,
+  },
+  safetyText: {
+    ...typography.caption,
+    color: colors.muted,
+    flex: 1,
+  },
+  statsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.md,
+  },
+  stat: {
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    flex: 1,
+    gap: spacing.xs,
+    minWidth: 150,
+    padding: spacing.lg,
   },
   statValue: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#000',
-    marginTop: 12,
+    ...typography.h3,
+    color: colors.ink,
   },
   statLabel: {
-    fontSize: 14,
-    color: '#666',
-    marginTop: 4,
+    ...typography.caption,
+    color: colors.muted,
+    textAlign: 'center',
   },
   section: {
-    marginBottom: 24,
+    gap: spacing.md,
+  },
+  sectionHeading: {
+    alignItems: 'baseline',
+    flexDirection: 'row',
+    gap: spacing.sm,
+    justifyContent: 'space-between',
   },
   sectionTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#000',
-    marginBottom: 16,
+    ...typography.h3,
+    color: colors.ink,
+    flex: 1,
+  },
+  sectionMeta: {
+    ...typography.caption,
+    color: colors.muted,
   },
   skillsContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: spacing.sm,
   },
   skillBadge: {
-    backgroundColor: '#f9f9f9',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 20,
+    backgroundColor: colors.subtle,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
   },
   skillText: {
-    fontSize: 14,
-    color: '#000',
+    ...typography.bodyStrong,
+    color: colors.ink,
     textTransform: 'capitalize',
-    fontWeight: '500',
   },
-  locationContainer: {
-    flexDirection: 'row',
+  reviewsState: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+  },
+  reviewError: {
     alignItems: 'center',
-    gap: 8,
-    backgroundColor: '#f9f9f9',
-    padding: 16,
-    borderRadius: 12,
+    backgroundColor: colors.dangerSoft,
+    borderColor: colors.danger,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.md,
+    padding: spacing.lg,
   },
-  locationText: {
+  reviewErrorCopy: {
     flex: 1,
-    fontSize: 16,
-    color: '#666',
+    gap: spacing.xs,
+    minWidth: 200,
+  },
+  reviewErrorTitle: {
+    ...typography.bodyStrong,
+    color: colors.danger,
+  },
+  reviewErrorText: {
+    ...typography.body,
+    color: colors.danger,
+  },
+  reviewList: {
+    gap: spacing.md,
   },
   reviewCard: {
-    backgroundColor: '#f9f9f9',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    gap: spacing.sm,
+    padding: spacing.lg,
   },
   reviewHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
+    flexDirection: 'row',
+    gap: spacing.md,
+    justifyContent: 'space-between',
   },
   ratingContainer: {
     flexDirection: 'row',
-    gap: 2,
+    gap: spacing.xxs,
   },
   reviewDate: {
-    fontSize: 12,
-    color: '#999',
+    ...typography.caption,
+    color: colors.muted,
   },
   reviewComment: {
-    fontSize: 14,
-    color: '#666',
-    lineHeight: 20,
-    marginBottom: 8,
+    ...typography.body,
+    color: colors.ink,
   },
   reviewAuthor: {
-    fontSize: 12,
-    color: '#999',
-    fontStyle: 'italic',
+    ...typography.caption,
+    color: colors.muted,
+    fontWeight: '700',
   },
 });

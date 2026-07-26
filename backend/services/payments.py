@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Optional
 
 from bson import ObjectId
 
@@ -51,7 +52,7 @@ async def delete_payment(payment_id):
     await core.db.ad_payments.delete_one({"_id": payment_id})
 
 
-async def create_ad_checkout(current_user: dict, package_id: str, redirect_uri: str | None = None):
+async def create_ad_checkout(current_user: dict, package_id: str, redirect_uri: Optional[str] = None):
     if package_id not in core.PROMOTION_PRESETS:
         raise core.HTTPException(status_code=400, detail="Unsupported ad package")
 
